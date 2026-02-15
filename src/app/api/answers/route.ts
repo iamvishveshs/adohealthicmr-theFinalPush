@@ -63,12 +63,15 @@ export const POST = requireAuth(async (request: NextRequest, user) => {
   try {
     const body = await request.json();
     const { moduleId, questionId, answer } = body;
+    // Normalize numeric IDs (accept string or number in request body)
+    const moduleIdNum = typeof moduleId === 'string' ? (isNaN(parseInt(moduleId, 10)) ? undefined : parseInt(moduleId, 10)) : moduleId;
+    const questionIdNum = typeof questionId === 'string' ? (isNaN(parseInt(questionId, 10)) ? undefined : parseInt(questionId, 10)) : questionId;
     if (isExpressEnabled()) {
       let isCorrect: boolean | undefined;
       try {
-        const qRes = await proxyToExpress(`/api/questions?moduleId=${moduleId}`);
+        const qRes = await proxyToExpress(`/api/questions?moduleId=${moduleIdNum ?? moduleId}`);
         const qData = await qRes.json();
-        const question = qData.questions?.find((q: { id: number }) => q.id === questionId);
+        const question = qData.questions?.find((q: { id: number }) => q.id === questionIdNum);
         if (question && question.correctAnswer !== undefined) {
           if (typeof answer === 'number') isCorrect = answer === question.correctAnswer;
           else if (typeof answer === 'string') isCorrect = answer === question.options?.[question.correctAnswer];
@@ -81,13 +84,13 @@ export const POST = requireAuth(async (request: NextRequest, user) => {
       const data = await res.json();
       return NextResponse.json(data, { status: res.status });
     }
-    if (!moduleId || !questionId || answer === undefined) {
+    if (moduleIdNum == null || questionIdNum == null || answer === undefined) {
       return NextResponse.json(
         { error: 'moduleId, questionId, and answer are required' },
         { status: 400 }
       );
     }
-    const question = getQuestionById(questionId, moduleId);
+    const question = await getQuestionById(questionIdNum, moduleIdNum);
     let isCorrect: boolean | undefined;
     if (question && question.correctAnswer !== undefined) {
       if (typeof answer === 'number') {
