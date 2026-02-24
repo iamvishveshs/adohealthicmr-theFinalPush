@@ -22,7 +22,6 @@ echo   Deployment Complete!
 echo ========================================
 echo.
 echo Don't forget to add environment variables in Vercel dashboard:
-echo - MONGODB_URI
 echo - JWT_SECRET
 echo - NODE_ENV=production
 echo - NEXT_PUBLIC_APP_URL

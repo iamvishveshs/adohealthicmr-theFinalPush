@@ -1,2 +1,2 @@
-/** Type-only re-export (no MongoDB). */
+/** Type-only re-export. */
 export type { QuestionRecord, QuestionRecord as IQuestion } from '@/lib/store';

@@ -20,7 +20,6 @@ console.log('\n📋 Copy this value for your Vercel environment variables!\n');
 const envTemplate = `# Vercel Environment Variables
 # Copy these to Vercel Dashboard → Settings → Environment Variables
 
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/adohealthicmr
 JWT_SECRET=${jwtSecret}
 NODE_ENV=production
 WEB3FORMS_ACCESS_KEY=your-web3forms-key-here

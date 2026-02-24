@@ -11,7 +11,7 @@ async function migrateData() {
     const modules = getModules();
     const questions = getQuestions();
     console.log(`✅ Loaded ${modules.length} modules and ${questions.length} questions from file.`);
-    console.log('   No MongoDB migration needed — app uses in-memory store with file backup.');
+    console.log('   No migration needed — app uses in-memory store with file backup.');
     process.exit(0);
   } catch (error) {
     console.error('❌ Failed to load data:', error);

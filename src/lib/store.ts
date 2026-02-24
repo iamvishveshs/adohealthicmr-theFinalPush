@@ -1,5 +1,5 @@
 /**
- * In-memory data store (no MongoDB).
+ * In-memory data store.
  * Modules & questions loaded from data/app-data.json; others in memory.
  */
 

@@ -7,37 +7,17 @@ This directory contains all backend-related code for the ADO Health ICMR applica
 ```
 backend/
 ├── lib/           # Backend utilities and helpers
-│   ├── db.ts      # MongoDB connection utility
 │   └── auth.ts    # Authentication and authorization utilities
-├── models/        # Mongoose database models
-│   ├── User.ts    # User model
-│   ├── Module.ts  # Module model
-│   ├── Question.ts # Question model
-│   └── Answer.ts   # Answer model
 └── scripts/       # Utility scripts
-    ├── migrate-data.ts    # Data migration script
+    ├── migrate-data.ts    # Data migration / helper scripts
     └── create-admin.ts     # Admin user creation script
 ```
 
 ## Usage
 
-### Database Connection
+### Database
 
-```typescript
-import connectDB from '@/backend/lib/db';
-
-// In your API route
-await connectDB();
-```
-
-### Models
-
-```typescript
-import User from '@/backend/models/User';
-import Module from '@/backend/models/Module';
-import Question from '@/backend/models/Question';
-import Answer from '@/backend/models/Answer';
-```
+The main application uses an in-memory/file-backed store by default (see `src/lib/store`). Legacy helper scripts have been removed. If you need a persistent database, the project supports PostgreSQL via `DATABASE_URL`.
 
 ### Authentication
 
@@ -80,5 +60,5 @@ npm run create-admin
 
 - All API routes are located in `src/app/api/` (Next.js App Router requirement)
 - The backend folder contains reusable backend code that can be imported by API routes
-- Models use Mongoose for MongoDB interaction
+- Data is stored in-memory with file backups by default; PostgreSQL can be enabled via `DATABASE_URL`
 - Authentication uses JWT tokens stored in HTTP-only cookies
