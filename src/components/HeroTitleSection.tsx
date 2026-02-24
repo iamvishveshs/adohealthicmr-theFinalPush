@@ -40,7 +40,7 @@
         {/* Content */}
         <div className="max-w-5xl mx-2 px-4 sm:px-6 md:px-8 text-left mt-20 sm:mt-32 md:mt-40 relative z-10">
           {/* Semi-transparent background behind text for extra readability */}
-          <div className="absolute inset-0 bg-white/40 rounded-lg -z-10 blur-sm"></div>
+          <div className="absolute inset-0 bg-blue/40 rounded-lg -z-10 blur-sm"></div>
           <div className="">
           {/* Decorative Top Element */}
           <div className="flex justify-start mb-4 sm:mb-6">

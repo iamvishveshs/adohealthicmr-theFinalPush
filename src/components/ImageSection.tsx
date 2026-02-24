@@ -34,6 +34,7 @@ export default function ImageSection({ selectedImage, isAdmin, onImageUpload, on
           src={bannerImg}
           alt="Banner"
           fill
+          sizes="100vw"
           className="object-contain"
         />
       </div>

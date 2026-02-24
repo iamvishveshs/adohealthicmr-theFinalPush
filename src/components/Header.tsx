@@ -26,6 +26,7 @@ export default function Header({ isUserLoggedIn, isAdmin, userName, onLoginClick
                   src={icmrLogo}
                   alt="ICMR Logo - Indian Council of Medical Research"
                   fill
+                  sizes="48px"
                   className="object-contain"
                   priority
                   style={{ filter: 'brightness(3) contrast(1.4) invert(0)' }}
