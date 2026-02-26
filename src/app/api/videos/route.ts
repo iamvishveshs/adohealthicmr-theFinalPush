@@ -63,11 +63,21 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       preview,
       fileName,
       fileSize,
-      fileUrl,
+      fileUrl, // Include fileUrl (Cloudinary secure_url) for video playback
       uploadedBy: user.userId,
     });
+    
+    // Ensure response includes all video data including fileUrl for immediate preview
     return NextResponse.json(
-      { success: true, message: 'Video created successfully', video: newVideo },
+      { 
+        success: true, 
+        message: 'Video created successfully', 
+        video: {
+          ...newVideo,
+          // Explicitly include fileUrl in response for frontend preview
+          fileUrl: newVideo.fileUrl || fileUrl,
+        }
+      },
       { status: 201 }
     );
   } catch (error) {

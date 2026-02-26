@@ -30,9 +30,10 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       videoType 
     } = body;
 
-    if (!publicId || !url || !moduleId || !videoType) {
+    // Validate required fields - secure_url is preferred but url is acceptable
+    if (!publicId || (!url && !secure_url) || !moduleId || !videoType) {
       return NextResponse.json(
-        { error: 'Missing required fields: publicId, url, moduleId, videoType' },
+        { error: 'Missing required fields: publicId, url (or secure_url), moduleId, videoType' },
         { status: 400 }
       );
     }
@@ -55,12 +56,28 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
     // Generate preview thumbnail from Cloudinary
     const preview = getVideoThumbnail(publicId);
 
-    // Generate optimized URL with Cloudinary transformations (if not already optimized)
-    const optimizedUrl = url.includes('q_auto:eco,f_auto') 
-      ? url 
-      : url.replace('/upload/', '/upload/q_auto:eco,f_auto/');
+    // Use secure_url if available, otherwise use url
+    const baseUrl = secure_url || url;
+    
+    // Generate optimized URL with Cloudinary transformations: f_mp4,f_auto,q_auto
+    // f_mp4: explicit MP4 format for best compatibility
+    // f_auto: automatic format fallback
+    // q_auto: automatic quality optimization
+    let optimizedUrl = baseUrl;
+    if (baseUrl.includes('/upload/')) {
+      // Remove any existing transformations
+      optimizedUrl = baseUrl.replace(/\/upload\/[^\/]+\//, '/upload/');
+      // Apply f_mp4,f_auto,q_auto transformations for full browser compatibility
+      optimizedUrl = optimizedUrl.replace('/upload/', '/upload/f_mp4,f_auto,q_auto/');
+      
+      console.log('[Upload API] URL optimized:', {
+        original: baseUrl,
+        optimized: optimizedUrl,
+        publicId,
+      });
+    }
 
-    // Save video metadata to store
+    // Save video metadata to store with optimized secure_url
     const savedVideo = createVideo({
       moduleId: moduleIdNum,
       videoType: videoType as 'english' | 'punjabi' | 'hindi' | 'activity',
@@ -68,10 +85,11 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       preview,
       fileName: fileName || 'video',
       fileSize: fileSize || bytes || 0,
-      fileUrl: optimizedUrl,
+      fileUrl: optimizedUrl, // Store optimized secure_url for playback
       uploadedBy: user.userId,
     });
 
+    // Return response with secure_url and optimized fileUrl for immediate video preview
     return NextResponse.json({
       success: true,
       message: 'Video metadata saved successfully',
@@ -79,7 +97,8 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
         ...savedVideo,
         publicId,
         url: optimizedUrl,
-        secure_url: secure_url || url,
+        secure_url: secure_url || url, // Include original secure_url
+        fileUrl: optimizedUrl, // Include optimized fileUrl for video playback
         format,
         duration,
         bytes,

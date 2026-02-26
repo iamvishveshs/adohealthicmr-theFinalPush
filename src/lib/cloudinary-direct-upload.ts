@@ -32,6 +32,7 @@ export interface UploadOptions {
 // Cloudinary configuration from environment
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || '';
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || '';
+// Use the correct Cloudinary video upload endpoint
 const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`;
 
 /**
@@ -387,11 +388,23 @@ export async function uploadVideoDirect(
       });
     }
 
-    // Generate optimized URL with q_auto:eco,f_auto
-    const optimizedUrl = result.secure_url.replace(
-      '/upload/',
-      '/upload/q_auto:eco,f_auto/'
-    );
+    // Generate optimized URL with f_mp4,f_auto,q_auto using secure_url
+    // f_mp4: explicit MP4 format for best compatibility
+    // f_auto: automatic format fallback
+    // q_auto: automatic quality optimization
+    // Use secure_url for HTTPS playback
+    let optimizedUrl = result.secure_url;
+    if (result.secure_url.includes('/upload/')) {
+      // Remove any existing transformations
+      optimizedUrl = result.secure_url.replace(/\/upload\/[^\/]+\//, '/upload/');
+      // Apply f_mp4,f_auto,q_auto transformations for full browser compatibility
+      optimizedUrl = optimizedUrl.replace('/upload/', '/upload/f_mp4,f_auto,q_auto/');
+      
+      console.log('[Cloudinary Upload] URL optimized:', {
+        original: result.secure_url,
+        optimized: optimizedUrl,
+      });
+    }
 
     onProgress?.({
       stage: 'complete',
@@ -404,8 +417,8 @@ export async function uploadVideoDirect(
       success: true,
       video: {
         publicId: result.public_id,
-        url: optimizedUrl,
-        secure_url: result.secure_url,
+        url: optimizedUrl, // Use optimized secure_url
+        secure_url: result.secure_url, // Keep original secure_url for reference
         format: result.format,
         duration: result.duration,
         bytes: result.bytes,

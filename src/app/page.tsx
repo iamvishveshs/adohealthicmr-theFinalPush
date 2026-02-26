@@ -16,6 +16,7 @@ import StatisticsSection from "../components/StatisticsSection";
 import RiskFactorsSection from "../components/RiskFactorsSection";
 import Footer from "../components/Footer";
 import UploadProgressBar from "../components/UploadProgressBar";
+import VideoPlayer from "../components/VideoPlayer";
 import { UploadProgress } from "../lib/cloudinary-direct-upload";
 import { storeVideo, uploadVideoInBackground, processPendingUploads, getPendingUploads, type StoredVideo } from "../lib/video-storage";
 
@@ -345,6 +346,7 @@ export default function Home() {
                 preview: v.preview,
                 fileName: v.fileName,
                 fileSize: v.fileSize,
+                ...(v.fileUrl && { fileUrl: v.fileUrl }), // Include fileUrl for video playback if available
               });
             });
             setVideos(apiVideos);
@@ -628,6 +630,7 @@ export default function Home() {
               preview: v.preview,
               fileName: v.fileName,
               fileSize: v.fileSize,
+              ...(v.fileUrl && { fileUrl: v.fileUrl }), // Include fileUrl for video playback if available
             });
           });
           
@@ -1140,19 +1143,27 @@ export default function Home() {
       // Show immediate feedback that file is stored
       showSaveFeedback('success', 'Video stored! Uploading to Cloudinary in background...', { type: 'video', moduleId });
 
-      // Create a local preview URL for immediate display
-      const localPreviewUrl = URL.createObjectURL(file);
-      
-      const newVideo: any = {
-        id: Date.now(),
-        preview: localPreviewUrl,
+      console.log('[Video Upload] Video stored locally, starting Cloudinary upload...', {
+        storedVideoId,
         fileName: file.name,
         fileSize: file.size,
-        fileUrl: '', // Will be updated when upload completes
+        moduleId,
+        videoType,
+      });
+
+      // Don't create blob URL - wait for Cloudinary upload to complete
+      // This prevents ERR_FILE_NOT_FOUND errors from blob URLs
+      const newVideo: any = {
+        id: Date.now(),
+        preview: '', // Will be updated with Cloudinary thumbnail
+        fileName: file.name,
+        fileSize: file.size,
+        fileUrl: '', // Will be updated with Cloudinary secure_url when upload completes
         publicId: undefined,
         storedVideoId, // Store the ID for tracking background upload
       };
 
+      // Set pending video without blob URL - will update when Cloudinary upload completes
       setPendingVideos(prev => ({
         ...prev,
         [moduleId]: {
@@ -1182,30 +1193,97 @@ export default function Home() {
           }
           // 100% message will be shown in the .then() below
         }
-      }).then((result) => {
+      }).then(async (result) => {
+        console.log('[Video Upload] Cloudinary upload result:', result);
+        
         if (result.success && result.video) {
-          // Upload complete - update video with Cloudinary URL
-          const videoUrl = result.video.url || result.video.secure_url;
+          // Upload complete - use secure_url for HTTPS playback
+          // Prefer secure_url over url for better security and compatibility
+          const videoUrl = result.video.secure_url || result.video.url;
           const publicId = result.video.publicId;
           
-          // Generate preview thumbnail
+          if (!videoUrl) {
+            console.error('[Video Upload] No video URL returned from Cloudinary upload:', result);
+            showSaveFeedback('error', 'Upload completed but video URL is missing. Please try again.', { type: 'video', moduleId });
+            return;
+          }
+          
+          // Apply Cloudinary transformations: f_mp4 for explicit format, f_auto for fallback, q_auto for quality
+          // Format: /upload/f_mp4,f_auto,q_auto/
+          let optimizedVideoUrl = videoUrl;
+          if (videoUrl.includes('/upload/') && !videoUrl.includes('f_mp4')) {
+            // Remove any existing transformations first
+            optimizedVideoUrl = videoUrl.replace(/\/upload\/[^\/]+\//, '/upload/');
+            // Apply transformations
+            optimizedVideoUrl = optimizedVideoUrl.replace('/upload/', '/upload/f_mp4,f_auto,q_auto/');
+          }
+          
+          console.log('[Video Upload] Video URL optimized:', {
+            original: videoUrl,
+            optimized: optimizedVideoUrl,
+            publicId,
+          });
+          
+          // Generate preview thumbnail from Cloudinary
           const preview = publicId 
             ? `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth'}/video/upload/w_640,h_360,c_fill/${publicId}.jpg`
-            : videoUrl;
+            : optimizedVideoUrl;
 
-          // Update pending video with Cloudinary info
-          setPendingVideos(prev => ({
-            ...prev,
-            [moduleId]: {
-              ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
-              [videoType]: [{
-                ...newVideo,
-                preview,
-                fileUrl: videoUrl,
-                publicId,
-              }]
+          // Save video metadata to backend immediately for preview
+          try {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+              const metadataResponse = await fetch('/api/upload-video', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  ...result.video,
+                  moduleId,
+                  videoType,
+                  fileName: file.name,
+                  fileSize: result.video.fileSize || file.size,
+                }),
+              });
+
+              if (metadataResponse.ok) {
+                const metadataData = await metadataResponse.json();
+                console.log('[Video Upload] Video metadata saved:', metadataData);
+                
+                // Use the fileUrl from the saved video if available
+                if (metadataData.video?.fileUrl) {
+                  optimizedVideoUrl = metadataData.video.fileUrl;
+                }
+              } else {
+                console.warn('[Video Upload] Failed to save metadata, but video is uploaded:', await metadataResponse.text());
+              }
             }
-          }));
+          } catch (metadataError) {
+            console.error('[Video Upload] Error saving metadata:', metadataError);
+            // Continue even if metadata save fails - video is still uploaded
+          }
+
+          // Update pending video with Cloudinary info - use optimized secure_url
+          // This triggers React re-render with the correct Cloudinary URL for immediate preview
+          setPendingVideos(prev => {
+            const updated = {
+              ...prev,
+              [moduleId]: {
+                ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
+                [videoType]: [{
+                  ...newVideo,
+                  preview, // Cloudinary thumbnail
+                  fileUrl: optimizedVideoUrl, // Cloudinary secure_url with transformations for immediate preview
+                  publicId,
+                }]
+              }
+            };
+            
+            console.log('[Video Upload] Updated pending videos state for immediate preview:', updated[moduleId]?.[videoType]);
+            return updated;
+          });
 
           // Clear upload progress
           setUploadProgress(prev => {
@@ -1214,9 +1292,19 @@ export default function Home() {
             return updated;
           });
 
-          showSaveFeedback('success', 'Video uploaded to Cloudinary! Click "Save Video" to make it available.', { type: 'video', moduleId });
+          console.log('[Video Upload] Upload complete, video ready for immediate preview:', {
+            fileUrl: optimizedVideoUrl,
+            preview,
+            publicId,
+            fileName: file.name,
+            fileSize: file.size,
+          });
+
+          showSaveFeedback('success', 'Video uploaded! You can preview it below. Click "Save Video" to make it available to all users.', { type: 'video', moduleId });
         } else {
           // Upload failed
+          console.error('[Video Upload] Upload failed:', result.error);
+          
           setUploadProgress(prev => {
             const updated = { ...prev };
             delete updated[progressKey];
@@ -1226,7 +1314,7 @@ export default function Home() {
           showSaveFeedback('error', `Background upload failed: ${result.error || 'Unknown error'}. Video is stored locally and will retry.`, { type: 'video', moduleId });
         }
       }).catch((error) => {
-        console.error('Background upload error:', error);
+        console.error('[Video Upload] Background upload error:', error);
         setUploadProgress(prev => {
           const updated = { ...prev };
           delete updated[progressKey];
@@ -1280,7 +1368,7 @@ export default function Home() {
         ? Math.max(...existingVideos.map(v => v.id)) + 1 
         : 1;
       
-      // Create video via API
+      // Create video via API - include fileUrl for playback
       const videoData: VideoData = {
         moduleId,
         videoType: videoType as 'english' | 'punjabi' | 'hindi' | 'activity',
@@ -1288,6 +1376,7 @@ export default function Home() {
         preview: videoToSave.preview,
         fileName: videoToSave.fileName,
         fileSize: videoToSave.fileSize,
+        fileUrl: videoToSave.fileUrl, // Include fileUrl for video playback
       };
       
       const response = await createVideo(videoData);
@@ -1295,7 +1384,7 @@ export default function Home() {
       if (response.success && response.data?.video) {
         const createdVideo = response.data.video;
         
-        // Update videos state
+        // Update videos state - include fileUrl for playback
         const updatedVideos = {
           ...videos,
           [moduleId]: {
@@ -1307,6 +1396,7 @@ export default function Home() {
                 preview: createdVideo.preview,
                 fileName: createdVideo.fileName,
                 fileSize: createdVideo.fileSize,
+                fileUrl: createdVideo.fileUrl || videoToSave.fileUrl, // Include fileUrl for playback
               }
             ]
           }
@@ -2548,119 +2638,223 @@ export default function Home() {
                               )}
 
                               {/* Pending Video Display with Save Button - Only for Admin */}
-                              {isAdmin && hasPendingVideo && !hasSavedVideo && displayVideo && (
-                                <div className="relative mb-6">
-                                  <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 mb-4">
-                                    <p className="text-sm text-yellow-800 font-medium mb-2">
-                                      ⚠️ Video uploaded but not saved. Click &quot;Save Video&quot; to make it available to all users.
-                                    </p>
-                                  </div>
-                                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                    <div className="relative aspect-video mb-3">
-                                      <video
-                                        src={displayVideo[0].preview}
-                                        controls
-                                        className="w-full h-full rounded-lg border border-gray-300 object-cover"
-                                      >
-                                        Your browser does not support the video tag.
-                                      </video>
+                              {isAdmin && hasPendingVideo && !hasSavedVideo && displayVideo && displayVideo.length > 0 && (() => {
+                                const pendingVideo = displayVideo[0];
+                                
+                                // Only use Cloudinary secure_url - never use blob URLs
+                                // Blob URLs cause ERR_FILE_NOT_FOUND errors
+                                const pendingVideoSrc = pendingVideo.fileUrl || null;
+                                const pendingVideoPoster = pendingVideo.preview && 
+                                  !pendingVideo.preview.includes('/video/upload/') && 
+                                  pendingVideo.preview.startsWith('https://') ? pendingVideo.preview : undefined;
+                                
+                                console.log('[Video Display] Pending video:', {
+                                  hasFileUrl: !!pendingVideo.fileUrl,
+                                  fileUrl: pendingVideo.fileUrl,
+                                  preview: pendingVideo.preview,
+                                  videoSrc: pendingVideoSrc,
+                                  poster: pendingVideoPoster,
+                                });
+                                
+                                return (
+                                  <div className="relative mb-6">
+                                    <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4 mb-4">
+                                      <p className="text-sm text-green-800 font-medium mb-1">
+                                        ✅ Video uploaded successfully!
+                                      </p>
+                                      <p className="text-xs text-green-700">
+                                        Preview your video below. Click &quot;Save Video&quot; to make it available to all users.
+                                      </p>
                                     </div>
-                                    <div className="p-3 bg-white rounded-lg">
-                                      <p className="text-sm font-semibold text-gray-900 mb-1">
-                                        {currentVideoType === "activity" ? "Activity" : currentVideoType.charAt(0).toUpperCase() + currentVideoType.slice(1)} Video (Pending)
-                                      </p>
-                                      <p className="text-xs text-gray-600 truncate">
-                                        {displayVideo[0].fileName}
-                                      </p>
-                                      <p className="text-xs text-gray-500 mt-1">
-                                        {(displayVideo[0].fileSize / 1024 / 1024).toFixed(2)} MB
-                                      </p>
-                                      <div className="mt-4 flex gap-3">
-                                        <button
-                                          onClick={() => handleSaveVideo(module.id)}
-                                          className="flex-1 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-md"
-                                        >
-                                          Save Video
-                                        </button>
-                                        <button
-                                          onClick={() => handleCancelPendingVideo(module.id)}
-                                          className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition-colors"
-                                        >
-                                          Cancel
-                                        </button>
+                                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                                      <div className="relative mb-3">
+                                        {pendingVideoSrc ? (
+                                          <VideoPlayer
+                                            url={pendingVideoSrc}
+                                            poster={pendingVideoPoster}
+                                            className="rounded-lg border border-gray-300"
+                                            onError={(error) => {
+                                              console.error('[Video Display] Pending video playback error:', error);
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="relative aspect-video bg-gray-100 rounded-lg border border-gray-300 flex items-center justify-center">
+                                            <div className="text-center p-4">
+                                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
+                                              <p className="text-gray-500 text-sm">Processing video...</p>
+                                              <p className="text-gray-400 text-xs mt-1">Video URL will be available shortly</p>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="p-3 bg-white rounded-lg">
+                                        <p className="text-sm font-semibold text-gray-900 mb-1">
+                                          {currentVideoType === "activity" ? "Activity" : currentVideoType.charAt(0).toUpperCase() + currentVideoType.slice(1)} Video (Preview)
+                                        </p>
+                                        <p className="text-xs text-gray-600 truncate" title={pendingVideo.fileName}>
+                                          📹 {pendingVideo.fileName}
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          📦 Size: {(pendingVideo.fileSize / 1024 / 1024).toFixed(2)} MB
+                                        </p>
+                                        {!pendingVideoSrc && (
+                                          <p className="text-xs text-yellow-600 mt-2">
+                                            ⚠️ Video URL is being processed. Please wait...
+                                          </p>
+                                        )}
+                                        <div className="mt-4 flex gap-3">
+                                          <button
+                                            onClick={() => handleSaveVideo(module.id)}
+                                            className="flex-1 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-md"
+                                          >
+                                            Save Video
+                                          </button>
+                                          <button
+                                            onClick={() => handleCancelPendingVideo(module.id)}
+                                            className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
                               {/* Saved Video Display - Visible to all users */}
-                              {hasSavedVideo && displayVideo && displayVideo.length > 0 && (
-                                <div className="relative">
-                                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                    {displayVideo[0]?.preview && 
-                                     displayVideo[0].preview.trim() !== '' && 
-                                     (displayVideo[0].preview.startsWith('data:video/') || displayVideo[0].preview.startsWith('blob:')) ? (
-                                      <>
-                                        <div className="relative aspect-video mb-3">
-                                          <video
-                                            src={displayVideo[0].preview}
-                                            controls
-                                            className="w-full h-full rounded-lg border border-gray-300 object-cover"
-                                            preload="metadata"
-                                          >
-                                            Your browser does not support the video tag.
-                                          </video>
+                              {hasSavedVideo && displayVideo && displayVideo.length > 0 && (() => {
+                                const video = displayVideo[0];
+                                
+                                // Try to get video URL from fileUrl, or construct from preview if it's a Cloudinary thumbnail
+                                let videoSrc = video.fileUrl || null;
+                                
+                                // If fileUrl is missing but preview is a Cloudinary thumbnail, extract public_id and construct video URL
+                                if (!videoSrc && video.preview && video.preview.includes('res.cloudinary.com')) {
+                                  // Extract public_id from thumbnail URL
+                                  // Format: https://res.cloudinary.com/{cloud_name}/video/upload/w_640,h_360,c_fill/{public_id}.jpg
+                                  const publicIdMatch = video.preview.match(/\/video\/upload\/[^\/]*\/([^\/\.]+)/);
+                                  if (publicIdMatch) {
+                                    const publicId = publicIdMatch[1];
+                                    const cloudName = video.preview.match(/res\.cloudinary\.com\/([^\/]+)/)?.[1] || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth';
+                                    // Construct video URL with transformations
+                                    videoSrc = `https://res.cloudinary.com/${cloudName}/video/upload/f_mp4,f_auto,q_auto/${publicId}`;
+                                    console.log('[Video Display] Constructed video URL from preview:', {
+                                      preview: video.preview,
+                                      publicId,
+                                      constructedUrl: videoSrc,
+                                    });
+                                  }
+                                }
+                                
+                                // Use preview as poster/thumbnail only if it's a Cloudinary image URL
+                                const videoPoster = video.preview && 
+                                  video.preview.startsWith('https://res.cloudinary.com') && 
+                                  !video.preview.includes('/video/upload/') ? video.preview : undefined;
+                                
+                                // Log video data for debugging
+                                console.log('[Video Display] Saved video:', { 
+                                  hasFileUrl: !!video.fileUrl, 
+                                  fileUrl: video.fileUrl, 
+                                  preview: video.preview, 
+                                  videoSrc,
+                                  videoPoster,
+                                  fileName: video.fileName,
+                                });
+                                
+                                if (!videoSrc) {
+                                  return (
+                                    <div className="relative">
+                                      <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                                        <div className="p-6 text-center">
+                                          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+                                            <p className="text-sm text-blue-800 font-medium mb-2">
+                                              📹 Video metadata found
+                                            </p>
+                                            <p className="text-xs text-blue-600 mb-2">
+                                              File: {video.fileName}
+                                            </p>
+                                            <p className="text-xs text-blue-600">
+                                              Size: {(video.fileSize / 1024 / 1024).toFixed(2)} MB
+                                            </p>
+                                          </div>
+                                          <p className="text-sm text-gray-600 mb-2">
+                                            Video was saved but video URL is not available.
+                                          </p>
+                                          {video.preview && video.preview.includes('res.cloudinary.com') ? (
+                                            <p className="text-xs text-blue-600 mb-4">
+                                              Attempting to load video from Cloudinary...
+                                            </p>
+                                          ) : (
+                                            <p className="text-xs text-gray-500 mb-4">
+                                              {isAdmin ? 'Please remove and re-upload the video to view it.' : 'Please contact an administrator.'}
+                                            </p>
+                                          )}
                                           {isAdmin && (
-                                            <button
-                                              onClick={() => handleRemoveVideo(module.id, displayVideo[0].id)}
-                                              className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors shadow-lg text-sm font-medium"
-                                            >
-                                              Remove
-                                            </button>
+                                            <div className="flex gap-2 justify-center">
+                                              <button
+                                                onClick={async () => {
+                                                  // Try to refresh the video data
+                                                  console.log('[Video Display] Refreshing video data for module:', module.id);
+                                                  await refetchData();
+                                                }}
+                                                className="px-4 py-2 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition-colors"
+                                              >
+                                                Refresh
+                                              </button>
+                                              <button
+                                                onClick={() => handleRemoveVideo(module.id, video.id)}
+                                                className="px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors"
+                                              >
+                                                Remove Video
+                                              </button>
+                                            </div>
                                           )}
                                         </div>
-                                        <div className="p-3 bg-white rounded-lg">
-                                          <p className="text-sm font-semibold text-gray-900 mb-1">
-                                            {currentVideoType === "activity" ? "Activity" : currentVideoType.charAt(0).toUpperCase() + currentVideoType.slice(1)} Video
-                                          </p>
-                                          <p className="text-xs text-gray-600 truncate">
-                                            {displayVideo[0].fileName}
-                                          </p>
-                                          <p className="text-xs text-gray-500 mt-1">
-                                            {(displayVideo[0].fileSize / 1024 / 1024).toFixed(2)} MB
-                                          </p>
-                                        </div>
-                                      </>
-                                    ) : (
-                                      <div className="p-6 text-center">
-                                        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
-                                          <p className="text-sm text-blue-800 font-medium mb-2">
-                                            📹 Video metadata found
-                                          </p>
-                                          <p className="text-xs text-blue-600 mb-2">
-                                            File: {displayVideo[0].fileName}
-                                          </p>
-                                          <p className="text-xs text-blue-600">
-                                            Size: {(displayVideo[0].fileSize / 1024 / 1024).toFixed(2)} MB
-                                          </p>
-                                        </div>
-                                        <p className="text-sm text-gray-600">
-                                          Video was saved but preview is not available. {isAdmin ? 'Please remove and re-upload the video to view it.' : 'Please contact an administrator.'}
-                                        </p>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                
+                                return (
+                                  <div className="relative">
+                                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                                      <div className="relative mb-3">
+                                        <VideoPlayer
+                                          url={videoSrc}
+                                          poster={videoPoster}
+                                          className="rounded-lg border border-gray-300"
+                                          onError={(error) => {
+                                            console.error('Video player error:', error);
+                                            if (process.env.NODE_ENV === 'development') {
+                                              console.error('Video data:', { video, videoSrc, videoPoster });
+                                            }
+                                          }}
+                                        />
                                         {isAdmin && (
                                           <button
-                                            onClick={() => handleRemoveVideo(module.id, displayVideo[0].id)}
-                                            className="mt-4 px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors"
+                                            onClick={() => handleRemoveVideo(module.id, video.id)}
+                                            className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors shadow-lg text-sm font-medium z-20"
                                           >
-                                            Remove Video
+                                            Remove
                                           </button>
                                         )}
                                       </div>
-                                    )}
+                                      <div className="p-3 bg-white rounded-lg">
+                                        <p className="text-sm font-semibold text-gray-900 mb-1">
+                                          {currentVideoType === "activity" ? "Activity" : currentVideoType.charAt(0).toUpperCase() + currentVideoType.slice(1)} Video
+                                        </p>
+                                        <p className="text-xs text-gray-600 truncate">
+                                          {video.fileName}
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          {(video.fileSize / 1024 / 1024).toFixed(2)} MB
+                                        </p>
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
                               {/* No Video Message */}
                               {!hasSavedVideo && !hasPendingVideo && (
