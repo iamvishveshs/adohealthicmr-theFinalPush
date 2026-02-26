@@ -1130,7 +1130,7 @@ export default function Home() {
         },
       }));
 
-      showSaveFeedback('info', 'Storing video file...', { type: 'video', moduleId });
+      // Video is being stored - no need to show message, will show success after storage
 
       // Store video in IndexedDB
       const storedVideoId = await storeVideo(file, moduleId, videoType);
@@ -1177,7 +1177,8 @@ export default function Home() {
           // Show message at 50% (only once)
           if (progress.progress >= 50 && lastMessageProgress < 50) {
             lastMessageProgress = 50;
-            showSaveFeedback('info', `Uploading to Cloudinary... 50%`, { type: 'video', moduleId });
+            // Show 50% progress - using success type for info message
+            showSaveFeedback('success', `Uploading to Cloudinary... 50%`, { type: 'video', moduleId });
           }
           // 100% message will be shown in the .then() below
         }

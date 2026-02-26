@@ -253,7 +253,6 @@ export async function uploadVideoStream(
             resolve({
               success: response.success !== false,
               video: response.video || response,
-              compression: response.compression || compressionInfo,
             });
           } catch (error) {
             reject(new Error('Failed to parse server response'));
