@@ -15,6 +15,9 @@ import ImageSection from "../components/ImageSection";
 import StatisticsSection from "../components/StatisticsSection";
 import RiskFactorsSection from "../components/RiskFactorsSection";
 import Footer from "../components/Footer";
+import UploadProgressBar from "../components/UploadProgressBar";
+import { UploadProgress } from "../lib/cloudinary-direct-upload";
+import { storeVideo, uploadVideoInBackground, processPendingUploads, getPendingUploads, type StoredVideo } from "../lib/video-storage";
 
 interface Question {
   id: number;
@@ -225,6 +228,40 @@ export default function Home() {
       }
     };
     checkAuth();
+  }, []);
+
+  // Process pending uploads on mount and periodically
+  useEffect(() => {
+    const processUploads = async () => {
+      try {
+        const pending = await getPendingUploads();
+        if (pending.length > 0) {
+          console.log(`Found ${pending.length} pending upload(s), processing in background...`);
+          // Process uploads in background
+          processPendingUploads((videoId, progress) => {
+            // Update progress for any pending uploads
+            const video = pending.find(v => v.id === videoId);
+            if (video) {
+              const progressKey = `${video.moduleId}-${video.videoType}`;
+              setUploadProgress(prev => ({
+                ...prev,
+                [progressKey]: progress,
+              }));
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error processing pending uploads:', error);
+      }
+    };
+
+    // Process on mount
+    processUploads();
+
+    // Process every 30 seconds to catch any missed uploads
+    const interval = setInterval(processUploads, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // Refetch all data from APIs (modules, questions, answers, videos) - used after admin saves
@@ -1033,7 +1070,12 @@ export default function Home() {
     }
   };
 
-  const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>, moduleId: number) => {
+  // Upload progress state - tracks progress for each module/videoType combination
+  const [uploadProgress, setUploadProgress] = useState<{
+    [key: string]: UploadProgress;
+  }>({});
+
+  const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>, moduleId: number) => {
     if (!isAdmin) return; // Only admin can upload videos
     
     const videoType = selectedVideoType[moduleId];
@@ -1059,28 +1101,58 @@ export default function Home() {
       return;
     }
 
-    // Warn about very large files (videos are stored in IndexedDB which handles large files well)
-    const maxVideoSize = 2048 * 1024 * 1024; // 2GB (IndexedDB can handle large files)
+    // Validate file size (5GB max to support 20-minute videos)
+    const maxVideoSize = 5 * 1024 * 1024 * 1024; // 5GB
     if (file.size > maxVideoSize) {
-      alert(`Video file is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 2GB. Please compress the video and try again.`);
+      alert(`Video file is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 5GB.`);
       return;
     }
-    // Warn about large files that might cause performance issues
-    const largeFileThreshold = 1024 * 1024 * 1024; // 1GB
+
+    // Warn about large files
+    const largeFileThreshold = 2 * 1024 * 1024 * 1024; // 2GB
     if (file.size > largeFileThreshold) {
-      const proceed = confirm(`Video file is large (${(file.size / 1024 / 1024).toFixed(2)}MB). Large videos may cause performance issues. Continue?`);
+      const proceed = confirm(`Video file is large (${(file.size / 1024 / 1024).toFixed(2)}MB). Large videos will be compressed automatically. Continue?`);
       if (!proceed) return;
     }
 
-    // Create preview URL and add to pending videos (not saved yet)
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const newVideo = {
+    // Initialize upload progress
+    const progressKey = `${moduleId}-${videoType}`;
+    
+    try {
+      // Step 1: Store video file locally first (IndexedDB)
+      setUploadProgress(prev => ({
+        ...prev,
+        [progressKey]: {
+          stage: 'uploading',
+          progress: 0,
+          message: 'Storing video file...',
+          originalSize: file.size,
+        },
+      }));
+
+      showSaveFeedback('info', 'Storing video file...', { type: 'video', moduleId });
+
+      // Store video in IndexedDB
+      const storedVideoId = await storeVideo(file, moduleId, videoType);
+      
+      console.log('Video stored locally:', storedVideoId);
+
+      // Show immediate feedback that file is stored
+      showSaveFeedback('success', 'Video stored! Uploading to Cloudinary in background...', { type: 'video', moduleId });
+
+      // Create a local preview URL for immediate display
+      const localPreviewUrl = URL.createObjectURL(file);
+      
+      const newVideo: any = {
         id: Date.now(),
-        preview: reader.result as string,
+        preview: localPreviewUrl,
         fileName: file.name,
-        fileSize: file.size
+        fileSize: file.size,
+        fileUrl: '', // Will be updated when upload completes
+        publicId: undefined,
+        storedVideoId, // Store the ID for tracking background upload
       };
+
       setPendingVideos(prev => ({
         ...prev,
         [moduleId]: {
@@ -1088,11 +1160,105 @@ export default function Home() {
           [videoType]: [newVideo]
         }
       }));
-    };
-    reader.readAsDataURL(file);
 
-    // Reset input
-    event.target.value = '';
+      // Step 2: Upload to Cloudinary in background (non-blocking)
+      // This runs asynchronously and updates progress
+      let lastMessageProgress = 0; // Track last message shown to avoid spam
+      
+      uploadVideoInBackground(storedVideoId, (progress) => {
+        // Always update progress state (for progress bar)
+        setUploadProgress(prev => ({
+          ...prev,
+          [progressKey]: progress,
+        }));
+
+        // Only show messages at 50% and 100% to avoid spam
+        if (progress.stage === 'uploading') {
+          // Show message at 50% (only once)
+          if (progress.progress >= 50 && lastMessageProgress < 50) {
+            lastMessageProgress = 50;
+            showSaveFeedback('info', `Uploading to Cloudinary... 50%`, { type: 'video', moduleId });
+          }
+          // 100% message will be shown in the .then() below
+        }
+      }).then((result) => {
+        if (result.success && result.video) {
+          // Upload complete - update video with Cloudinary URL
+          const videoUrl = result.video.url || result.video.secure_url;
+          const publicId = result.video.publicId;
+          
+          // Generate preview thumbnail
+          const preview = publicId 
+            ? `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth'}/video/upload/w_640,h_360,c_fill/${publicId}.jpg`
+            : videoUrl;
+
+          // Update pending video with Cloudinary info
+          setPendingVideos(prev => ({
+            ...prev,
+            [moduleId]: {
+              ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
+              [videoType]: [{
+                ...newVideo,
+                preview,
+                fileUrl: videoUrl,
+                publicId,
+              }]
+            }
+          }));
+
+          // Clear upload progress
+          setUploadProgress(prev => {
+            const updated = { ...prev };
+            delete updated[progressKey];
+            return updated;
+          });
+
+          showSaveFeedback('success', 'Video uploaded to Cloudinary! Click "Save Video" to make it available.', { type: 'video', moduleId });
+        } else {
+          // Upload failed
+          setUploadProgress(prev => {
+            const updated = { ...prev };
+            delete updated[progressKey];
+            return updated;
+          });
+
+          showSaveFeedback('error', `Background upload failed: ${result.error || 'Unknown error'}. Video is stored locally and will retry.`, { type: 'video', moduleId });
+        }
+      }).catch((error) => {
+        console.error('Background upload error:', error);
+        setUploadProgress(prev => {
+          const updated = { ...prev };
+          delete updated[progressKey];
+          return updated;
+        });
+
+        showSaveFeedback('error', `Upload error: ${error.message || 'Unknown error'}. Video is stored locally.`, { type: 'video', moduleId });
+      });
+    } catch (error: any) {
+      console.error('Error uploading video:', error);
+      
+      // Clear upload progress on error
+      setUploadProgress(prev => {
+        const updated = { ...prev };
+        delete updated[progressKey];
+        return updated;
+      });
+
+      // Provide user-friendly error messages
+      let errorMessage = error.message || 'Unknown error';
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+        errorMessage = 'Authentication failed. Please log in again as an admin.';
+      } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+        errorMessage = 'Access denied. Admin privileges required.';
+      } else if (errorMessage.includes('Network')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      }
+      
+      showSaveFeedback('error', `Failed to upload video: ${errorMessage}`, { type: 'video', moduleId });
+    } finally {
+      // Reset input
+      event.target.value = '';
+    }
   };
 
   const handleSaveVideo = async (moduleId: number) => {
@@ -2303,6 +2469,8 @@ export default function Home() {
                           const hasSavedVideo = savedVideoList.length > 0;
                           const hasPendingVideo = pendingVideoList && pendingVideoList.length > 0;
                           const displayVideo = hasSavedVideo ? savedVideoList : (hasPendingVideo ? pendingVideoList : null);
+                          const progressKey = `${module.id}-${currentVideoType}`;
+                          const currentProgress = uploadProgress[progressKey];
                           
                           return (
                             <>
@@ -2330,11 +2498,11 @@ export default function Home() {
                                     Upload Video <span className="text-red-500">*</span>
                                   </label>
                                   <label
-                                    htmlFor={`video-upload-${module.id}`}
+                                    htmlFor={`video-upload-${module.id}-${currentVideoType}`}
                                     className="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
                                   >
                                     <input
-                                      id={`video-upload-${module.id}`}
+                                      id={`video-upload-${module.id}-${currentVideoType}`}
                                       type="file"
                                       accept="video/*"
                                       onChange={(e) => handleVideoUpload(e, module.id)}
@@ -2357,9 +2525,24 @@ export default function Home() {
                                       <p className="mb-2 text-sm text-gray-500">
                                         <span className="font-semibold">Click to upload</span> or drag and drop
                                       </p>
-                                      <p className="text-xs text-gray-500">MP4, AVI, MOV (MAX. 2GB each)</p>
+                                      <p className="text-xs text-gray-500">MP4, AVI, MOV (MAX. 5GB each)</p>
                                     </div>
                                   </label>
+                                  
+                                  {/* Upload Progress Bar - Shows during upload */}
+                                  {currentProgress && (
+                                    <div className="mt-4">
+                                      <UploadProgressBar
+                                        progress={currentProgress.progress}
+                                        message={currentProgress.message}
+                                        stage={currentProgress.stage}
+                                        originalSize={currentProgress.originalSize}
+                                        compressedSize={currentProgress.compressedSize}
+                                        uploadedBytes={currentProgress.uploadedBytes}
+                                        totalBytes={currentProgress.totalBytes}
+                                      />
+                                    </div>
+                                  )}
                                 </div>
                               )}
 
