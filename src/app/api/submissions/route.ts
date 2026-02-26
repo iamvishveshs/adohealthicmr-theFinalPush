@@ -15,23 +15,25 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     }
     const all = getAllAnswers();
     const modules = new Map<number, string>();
-    const submissions = all.map((a) => {
-      let moduleTitle = modules.get(a.moduleId);
-      if (moduleTitle === undefined) {
-        const mod = getModuleById(a.moduleId);
-        moduleTitle = mod?.title ?? `Module ${a.moduleId}`;
-        modules.set(a.moduleId, moduleTitle);
-      }
-      return {
-        userId: a.userId,
-        moduleId: a.moduleId,
-        moduleTitle,
-        questionId: a.questionId,
-        answer: a.answer,
-        isCorrect: a.isCorrect,
-        submittedAt: a.submittedAt.toISOString(),
-      };
-    });
+    const submissions = await Promise.all(
+      all.map(async (a) => {
+        let moduleTitle = modules.get(a.moduleId);
+        if (moduleTitle === undefined) {
+          const mod = await getModuleById(a.moduleId);
+          moduleTitle = mod?.title ?? `Module ${a.moduleId}`;
+          modules.set(a.moduleId, moduleTitle);
+        }
+        return {
+          userId: a.userId,
+          moduleId: a.moduleId,
+          moduleTitle,
+          questionId: a.questionId,
+          answer: a.answer,
+          isCorrect: a.isCorrect,
+          submittedAt: a.submittedAt.toISOString(),
+        };
+      })
+    );
     // Newest first
     submissions.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
     return NextResponse.json({ success: true, submissions });

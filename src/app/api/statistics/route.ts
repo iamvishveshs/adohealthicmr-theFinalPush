@@ -55,24 +55,27 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
       };
     }
 
-    const moduleStats = getModules();
-    const moduleDetails = moduleStats.map((module) => {
-      const questionsCount = getQuestions(module.id).length;
-      const videosCount = getVideos(module.id).length;
-      const moduleAnswers =
-        user.role === 'admin' ? getAllAnswers(module.id) : getAnswers(user.userId, module.id);
-      const totalAnswers = moduleAnswers.length;
-      const correctAnswers = moduleAnswers.filter((a) => a.isCorrect).length;
-      return {
-        moduleId: module.id,
-        moduleTitle: module.title,
-        questionsCount,
-        videosCount,
-        totalAnswers,
-        correctAnswers,
-        accuracyRate: totalAnswers > 0 ? ((correctAnswers / totalAnswers) * 100).toFixed(2) : '0',
-      };
-    });
+    const moduleStats = await getModules();
+    const moduleDetails = await Promise.all(
+      moduleStats.map(async (module) => {
+        const questions = await getQuestions(module.id);
+        const questionsCount = questions.length;
+        const videosCount = getVideos(module.id).length;
+        const moduleAnswers =
+          user.role === 'admin' ? getAllAnswers(module.id) : getAnswers(user.userId, module.id);
+        const totalAnswers = moduleAnswers.length;
+        const correctAnswers = moduleAnswers.filter((a) => a.isCorrect).length;
+        return {
+          moduleId: module.id,
+          moduleTitle: module.title,
+          questionsCount,
+          videosCount,
+          totalAnswers,
+          correctAnswers,
+          accuracyRate: totalAnswers > 0 ? ((correctAnswers / totalAnswers) * 100).toFixed(2) : '0',
+        };
+      })
+    );
 
     return NextResponse.json({
       success: true,

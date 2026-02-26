@@ -8,8 +8,8 @@ import { getModules, getQuestions } from '../lib/store';
 async function migrateData() {
   try {
     console.log('📂 Loading store (data/app-data.json)...');
-    const modules = getModules();
-    const questions = getQuestions();
+    const modules = await getModules();
+    const questions = await getQuestions();
     console.log(`✅ Loaded ${modules.length} modules and ${questions.length} questions from file.`);
     console.log('   No migration needed — app uses in-memory store with file backup.');
     process.exit(0);
