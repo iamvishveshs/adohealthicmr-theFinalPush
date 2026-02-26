@@ -11,8 +11,8 @@ export async function GET() {
       const data = await res.json();
       return NextResponse.json(data, { status: res.status });
     }
-    const modules = getModules();
-    const allQuestions = getQuestions();
+    const modules = await getModules();
+    const allQuestions = await getQuestions();
     const questionsByModule: Record<string, Array<{ id: number; question: string; options: string[]; correctAnswer?: number }>> = {};
     for (const q of allQuestions) {
       const key = String(q.moduleId);
