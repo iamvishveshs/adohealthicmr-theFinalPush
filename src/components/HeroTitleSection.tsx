@@ -54,8 +54,8 @@
           </div>
 
           <h1 className="text-sm sm:text-base md:text-[18px] font-bold mb-4 sm:mb-6 leading-tight text-left">
-            <span className="text-white bg-yellow-500 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg shadow-lg border-2 border-yellow-400 inline-block mb-2 md:mb-0 text-xs sm:text-sm md:text-base">Adohealth Initiative</span>
-            <span className="text-white block text-left md:inline-block md:ml-2 font-semibold mt-2 md:mt-0 text-xs sm:text-sm md:text-base"> : A School-Based Cluster Randomised Controlled Trial of an E-Wellness Initiative for Nurturing Healthy Lifestyle Choices among Adolescents in SAS Nagar, Punjab.</span>
+            <span className="text-white bg-yellow-500 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg shadow-lg border-2 border-yellow-400 inline-block mb-2 md:mb-0 text-xs sm:text-sm md:text-base">AdoHealth Initiative</span>
+            <span className="text-white block text-left md:inline-block md:ml-2 font-semibold mt-2 md:mt-0 text-xs sm:text-sm md:text-base">A School-Based Cluster Randomised Controlled Trial of an E-Wellness Initiative for Nurturing Healthy Lifestyle Choices among Adolescents in SAS Nagar, Punjab.</span>
           </h1>
 
           {/* Modern Decorative Bottom Element */}
