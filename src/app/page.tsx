@@ -326,10 +326,10 @@ export default function Home() {
           if (videosResponse.success && videosResponse.data?.videos) {
             const apiVideos: {
               [moduleId: number]: {
-                english: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-                punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-                hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-                activity: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
+                english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+                punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+                hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+                activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
               };
             } = {};
             videosResponse.data.videos.forEach((v: VideoData) => {
@@ -613,10 +613,10 @@ export default function Home() {
         const videosResponse = await getVideos(moduleId);
         if (videosResponse.success && videosResponse.data?.videos) {
           const moduleVideos: {
-            english: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-            punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-            hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-            activity: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
+            english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+            punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+            hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+            activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
           } = {
             english: [],
             punjabi: [],
@@ -656,20 +656,20 @@ export default function Home() {
   // Videos state for all modules - initialize empty to avoid hydration errors
   const [videos, setVideos] = useState<{
     [moduleId: number]: {
-      english: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-      punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-      hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-      activity: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
+      english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+      punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+      hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+      activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
     };
   }>({});
 
   // Pending videos - uploaded but not yet saved (only visible to admin)
   const [pendingVideos, setPendingVideos] = useState<{
     [moduleId: number]: {
-      english: Array<{ id: number; preview: string; fileName: string; fileSize: number }> | null;
-      punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number }> | null;
-      hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number }> | null;
-      activity: Array<{ id: number; preview: string; fileName: string; fileSize: number }> | null;
+      english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
+      punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
+      hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
+      activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
     };
   }>({});
 
