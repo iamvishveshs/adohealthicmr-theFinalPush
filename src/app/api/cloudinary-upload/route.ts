@@ -120,14 +120,15 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
     console.log(`[Cloudinary Upload] File saved to temp location: ${tempFilePath}`);
 
     // Step 3: Upload to Cloudinary using the file path
-    // Using cloudinary.uploader.upload with filepath for efficient streaming of large files
+    // OPTIMIZATION: Disable eager transformations to speed up upload significantly
+    // Eager transformations force Cloudinary to process videos immediately, which slows uploads
+    // Transformations can be applied later via URL parameters when needed (e.g., ?q_auto:eco)
     const uploadResult = await cloudinary.uploader.upload(tempFilePath, {
       resource_type: 'video',
       folder: folder,
-      // Additional options for video optimization
-      eager: 'q_auto:eco,f_auto',
-      eager_async: true,
-      // Chunk size for large file uploads (50MB chunks)
+      // OPTIMIZATION: Removed eager transformations for faster upload
+      // Videos will be processed on-demand when accessed, not during upload
+      // Chunk size for large file uploads (50MB chunks for faster upload)
       chunk_size: 50000000,
     });
 
