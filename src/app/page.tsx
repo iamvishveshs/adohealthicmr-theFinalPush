@@ -134,8 +134,8 @@ export default function Home() {
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [historyError, setHistoryError] = useState<string>("");
 
-  // Admin save success/error message (shown after save)
-  const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  // Admin save success/error/info message (shown after save)
+  const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
   // Track which item was just saved so we can highlight it
   const [lastSavedItem, setLastSavedItem] = useState<{
     type: "module" | "question" | "video" | "module-add";
@@ -369,9 +369,9 @@ export default function Home() {
     refetchData();
   }, [refetchData]);
 
-  // Show save feedback toast (success or error) and optionally highlight the saved item
+  // Show save feedback toast (success, error, or info) and optionally highlight the saved item
   const showSaveFeedback = useCallback((
-    type: "success" | "error",
+    type: "success" | "error" | "info",
     text: string,
     savedItem?: { type: "module" | "question" | "video" | "module-add"; moduleId: number; questionId?: number } | null
   ) => {
@@ -1568,7 +1568,9 @@ export default function Home() {
       {saveMessage && (
         <div
           className={`fixed top-4 left-1/2 -translate-x-1/2 z-[300] px-4 py-3 rounded-lg shadow-lg text-white font-medium max-w-md text-center ${
-            saveMessage.type === "success" ? "bg-green-600" : "bg-red-600"
+            saveMessage.type === "success" ? "bg-green-600" : 
+            saveMessage.type === "error" ? "bg-red-600" : 
+            "bg-blue-600"
           }`}
           role="alert"
         >
