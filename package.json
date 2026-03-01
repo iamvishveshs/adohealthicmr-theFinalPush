@@ -19,9 +19,11 @@
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "@sendgrid/mail": "^8.1.0",
+    "@types/formidable": "^3.4.7",
     "@types/nodemailer": "^7.0.9",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.9.0",
+    "formidable": "^3.5.4",
     "jsonwebtoken": "^9.0.2",
     "next": "^14.2.5",
     "nodemailer": "^7.0.13",
