@@ -500,8 +500,8 @@ export async function uploadVideoDirect(
         if (error instanceof TypeError && error.message.includes('fetch')) {
           const detailedError = new Error(
             `Network error: ${error.message}. ` +
-            `Check: 1) Internet connection, 2) Upload URL: ${uploadUrl}, ` +
-            `3) CORS settings, 4) Firewall/proxy settings`
+            `Check: 1) Internet connection, 2) Proxy route: ${CLOUDINARY_PROXY_UPLOAD_URL}, ` +
+            `3) Server is running, 4) Firewall/proxy settings`
           );
           throw detailedError;
         }
