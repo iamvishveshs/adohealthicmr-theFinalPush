@@ -43,10 +43,27 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       const data = await res.json();
       return NextResponse.json(data, { status: res.status });
     }
-    const { moduleId, videoType, videoId, preview, fileName, fileSize, fileUrl } = body;
-    if (!moduleId || !videoType || videoId === undefined || !preview || !fileName || fileSize === undefined) {
+    const { moduleId, videoType, videoId, preview, fileName, fileSize, fileUrl, publicId } = body;
+    
+    // Validate required fields
+    if (!moduleId || !videoType || videoId === undefined || !fileName || fileSize === undefined) {
       return NextResponse.json(
-        { error: 'All fields (moduleId, videoType, videoId, preview, fileName, fileSize) are required' },
+        { error: 'Missing required fields: moduleId, videoType, videoId, fileName, and fileSize are required' },
+        { status: 400 }
+      );
+    }
+    
+    // Generate preview from publicId if preview is missing
+    let finalPreview = preview;
+    if (!finalPreview && publicId) {
+      const { getVideoThumbnail } = await import('@/lib/cloudinary');
+      finalPreview = getVideoThumbnail(publicId);
+    }
+    
+    // Preview is required - if still missing, return error
+    if (!finalPreview) {
+      return NextResponse.json(
+        { error: 'Preview is required. Please ensure the video upload completed successfully or provide a publicId to generate preview.' },
         { status: 400 }
       );
     }
@@ -60,7 +77,7 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       moduleId,
       videoType,
       videoId,
-      preview,
+      preview: finalPreview, // Use generated preview if original was missing
       fileName,
       fileSize,
       fileUrl, // Include fileUrl (Cloudinary secure_url) for video playback

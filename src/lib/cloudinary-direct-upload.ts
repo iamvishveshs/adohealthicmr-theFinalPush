@@ -454,7 +454,17 @@ export async function uploadVideoDirect(
           } else if (response.status === 413) {
             throw new Error(`${errorMessage}. File is too large. The proxy route should handle this - check Next.js body size limits.`);
           } else if (response.status >= 500) {
-            throw new Error(`${errorMessage}. Cloudinary service error. Please try again later.`);
+            // Try to get more details from the error response
+            let serverErrorDetails = errorMessage;
+            try {
+              const errorData = await response.json();
+              if (errorData.details) {
+                serverErrorDetails = `${errorMessage}. ${errorData.details}`;
+              }
+            } catch {
+              // If we can't parse the error, use the original message
+            }
+            throw new Error(serverErrorDetails);
           }
           
           throw new Error(errorMessage);

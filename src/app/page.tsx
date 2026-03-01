@@ -1365,6 +1365,12 @@ export default function Home() {
 
     const videoToSave = pendingVideo[0];
     
+    // Validate that required fields are present
+    if (!videoToSave.fileName || videoToSave.fileSize === undefined) {
+      showSaveFeedback('error', 'Video upload is not complete. Please wait for the upload to finish before saving.');
+      return;
+    }
+    
     try {
       // Get the next video ID for this module and video type
       const existingVideos = videos[moduleId]?.[videoType] || [];
@@ -1372,15 +1378,40 @@ export default function Home() {
         ? Math.max(...existingVideos.map(v => v.id)) + 1 
         : 1;
       
-      // Create video via API - include fileUrl for playback
-      const videoData: VideoData = {
+      // Generate preview if missing (from publicId or fileUrl)
+      let preview = videoToSave.preview;
+      if (!preview || preview === '') {
+        // Try to generate preview from publicId or fileUrl
+        if (videoToSave.publicId) {
+          // Import getVideoThumbnail dynamically
+          const { getVideoThumbnail } = await import('@/lib/cloudinary');
+          preview = getVideoThumbnail(videoToSave.publicId);
+        } else if (videoToSave.fileUrl) {
+          // Extract publicId from Cloudinary URL if possible
+          const urlMatch = videoToSave.fileUrl.match(/\/v\d+\/(.+?)(?:\.[^.]+)?$/);
+          if (urlMatch) {
+            const { getVideoThumbnail } = await import('@/lib/cloudinary');
+            preview = getVideoThumbnail(urlMatch[1]);
+          } else {
+            // Use a placeholder or the fileUrl itself as preview
+            preview = videoToSave.fileUrl;
+          }
+        } else {
+          showSaveFeedback('error', 'Video preview is not available. Please wait for the upload to complete.');
+          return;
+        }
+      }
+      
+      // Create video via API - include fileUrl and publicId for playback and preview generation
+      const videoData: VideoData & { publicId?: string } = {
         moduleId,
         videoType: videoType as 'english' | 'punjabi' | 'hindi' | 'activity',
         videoId: nextVideoId,
-        preview: videoToSave.preview,
+        preview: preview, // Use generated preview
         fileName: videoToSave.fileName,
         fileSize: videoToSave.fileSize,
-        fileUrl: videoToSave.fileUrl, // Include fileUrl for video playback
+        fileUrl: videoToSave.fileUrl || '', // Include fileUrl for video playback
+        publicId: videoToSave.publicId, // Include publicId for preview generation if needed
       };
       
       const response = await createVideo(videoData);
