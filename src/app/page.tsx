@@ -326,10 +326,10 @@ export default function Home() {
           if (videosResponse.success && videosResponse.data?.videos) {
             const apiVideos: {
               [moduleId: number]: {
-                english: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-                punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-                hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-                activity: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
+                english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+                punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+                hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+                activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
               };
             } = {};
             videosResponse.data.videos.forEach((v: VideoData) => {
@@ -613,10 +613,10 @@ export default function Home() {
         const videosResponse = await getVideos(moduleId);
         if (videosResponse.success && videosResponse.data?.videos) {
           const moduleVideos: {
-            english: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-            punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-            hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
-            activity: Array<{ id: number; preview: string; fileName: string; fileSize: number }>;
+            english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+            punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+            hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
+            activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }>;
           } = {
             english: [],
             punjabi: [],
