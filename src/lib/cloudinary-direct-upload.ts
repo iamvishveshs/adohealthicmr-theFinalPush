@@ -32,9 +32,8 @@ export interface UploadOptions {
 // Cloudinary configuration from environment
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || '';
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || '';
-// For large files (>50MB), upload directly to Cloudinary to avoid Next.js body size limits
-// For smaller files, use proxy route to avoid CORS issues
-const CLOUDINARY_DIRECT_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`;
+// All uploads go through the Next.js proxy route to avoid CORS issues
+// The proxy endpoint uses formidable and can handle files up to 300MB
 const CLOUDINARY_PROXY_UPLOAD_URL = '/api/cloudinary-upload';
 const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
 
@@ -162,25 +161,15 @@ async function uploadLargeFileWithRetry(
   const { maxRetries = 3 } = options;
   let attempt = 0;
   let lastError: Error | null = null;
-  
-  // Large files should always upload directly to Cloudinary to avoid Next.js body size limits
-  const isLargeFile = file.size > LARGE_FILE_THRESHOLD;
 
   while (attempt < maxRetries) {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
       formData.append('folder', folder);
       formData.append('resource_type', 'video');
-      // Add optimization parameters
-      formData.append('eager', 'q_auto:eco,f_auto');
-      formData.append('eager_async', 'true');
-      // Enable chunked upload for large files (Cloudinary handles this automatically)
-      // Larger chunks = faster upload but more memory per chunk
-      formData.append('chunk_size', '50000000'); // 50MB chunks for faster uploads
 
-      // Use fetch - for large files, upload directly to Cloudinary
+      // Use proxy route to avoid CORS issues
       const totalBytes = file.size;
       let uploadedBytes = 0;
       
@@ -201,22 +190,17 @@ async function uploadLargeFileWithRetry(
       }, 500);
 
       try {
-        // For large files (>100MB), upload DIRECTLY to Cloudinary to bypass Next.js 413 errors
-        // This requires CORS to be properly configured on Cloudinary side
-        const uploadUrl = CLOUDINARY_DIRECT_UPLOAD_URL;
+        // All uploads go through the Next.js proxy route to avoid CORS issues
+        // The proxy endpoint uses formidable and can handle files up to 300MB
+        const uploadUrl = CLOUDINARY_PROXY_UPLOAD_URL;
         
-        // Validate URL is properly constructed
-        if (!uploadUrl || !uploadUrl.includes('cloudinary.com')) {
-          throw new Error(`Invalid Cloudinary upload URL: ${uploadUrl}. Please check NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME environment variable.`);
-        }
-        
-        // Validate upload preset is set
-        if (!CLOUDINARY_UPLOAD_PRESET) {
-          throw new Error('Cloudinary upload preset is missing. Please set NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET environment variable.');
-        }
-        
-        // No auth token needed for direct Cloudinary uploads with unsigned preset
         const headers: HeadersInit = {};
+        
+        // Add auth token for proxy route
+        const token = localStorage.getItem('authToken');
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
 
         const response = await fetch(uploadUrl, {
           method: 'POST',
@@ -247,20 +231,10 @@ async function uploadLargeFileWithRetry(
         clearInterval(progressInterval);
         // Provide more detailed error information
         if (error instanceof TypeError && error.message.includes('fetch')) {
-          // Check if it's a CORS error
-          if (error.message.includes('CORS') || error.message.includes('Access-Control')) {
-            const detailedError = new Error(
-              `CORS error: Direct Cloudinary upload is blocked. ` +
-              `Please configure CORS in Cloudinary Dashboard: ` +
-              `Settings → Security → Allowed fetch domains → Add your domain. ` +
-              `Error: ${error.message}`
-            );
-            throw detailedError;
-          }
           const detailedError = new Error(
             `Network error: ${error.message}. ` +
-            `Check: 1) Internet connection, 2) Cloudinary URL: ${CLOUDINARY_DIRECT_UPLOAD_URL}, ` +
-            `3) CORS settings in Cloudinary, 4) Firewall/proxy settings`
+            `Check: 1) Internet connection, 2) Proxy route: ${CLOUDINARY_PROXY_UPLOAD_URL}, ` +
+            `3) Server is running, 4) Firewall/proxy settings`
           );
           throw detailedError;
         }
@@ -273,8 +247,7 @@ async function uploadLargeFileWithRetry(
       // Log error details for debugging
       console.error(`[Cloudinary Upload] Attempt ${attempt} failed:`, {
         error: lastError.message,
-        uploadUrl: CLOUDINARY_DIRECT_UPLOAD_URL,
-        hasPreset: !!CLOUDINARY_UPLOAD_PRESET,
+        uploadUrl: CLOUDINARY_PROXY_UPLOAD_URL,
         fileSize: file.size,
       });
       
@@ -309,8 +282,9 @@ async function uploadLargeFileWithRetry(
   } else if (isConfigError) {
     detailedMessage += '\n\nPlease check your Cloudinary configuration:\n' +
       `- NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME || 'NOT SET'}\n` +
-      `- NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: ${CLOUDINARY_UPLOAD_PRESET || 'NOT SET'}\n` +
-      `- Upload URL: ${CLOUDINARY_DIRECT_UPLOAD_URL}`;
+      `- CLOUDINARY_API_KEY: ${process.env.CLOUDINARY_API_KEY ? 'SET' : 'NOT SET'}\n` +
+      `- CLOUDINARY_API_SECRET: ${process.env.CLOUDINARY_API_SECRET ? 'SET' : 'NOT SET'}\n` +
+      `- Proxy URL: ${CLOUDINARY_PROXY_UPLOAD_URL}`;
   }
   
   throw new Error(detailedMessage);
@@ -332,10 +306,11 @@ export async function uploadVideoDirect(
   const fileSizeMB = file.size / 1024 / 1024;
 
   // Validate Cloudinary configuration
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_UPLOAD_PRESET) {
+  // Note: The proxy endpoint uses API credentials (server-side), so we only need to check cloud name
+  if (!CLOUDINARY_CLOUD_NAME) {
     return {
       success: false,
-      error: 'Cloudinary configuration missing. Please set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME and NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET in .env.local',
+      error: 'Cloudinary configuration missing. Please set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME in .env.local',
     };
   }
 
@@ -381,23 +356,19 @@ export async function uploadVideoDirect(
     const folder = `adohealthicmr/videos/${moduleId}/${videoType}`;
     let result: any;
 
-    // For files > 100MB, upload DIRECTLY to Cloudinary to bypass Next.js/Vercel body size limits
-    // For smaller files, use proxy route to avoid CORS issues
-    // Threshold: 100MB (bypasses Next.js ~50MB limit and Vercel 4.5MB limit)
-    const LARGE_FILE_THRESHOLD_FOR_DIRECT = 100 * 1024 * 1024; // 100MB
-    const isLargeFile = videoFile.size > LARGE_FILE_THRESHOLD_FOR_DIRECT;
+    // All uploads go through the Next.js proxy route to avoid CORS issues
+    // The proxy endpoint uses formidable and can handle files up to 300MB
     const useRetry = videoFile.size > 500 * 1024 * 1024; // Use retry for files > 500MB
 
-    if (isLargeFile || useRetry) {
+    if (useRetry) {
       onProgress?.({
         stage: 'uploading',
         progress: 0,
-        message: 'Uploading large file directly to Cloudinary (bypassing server limits)...',
+        message: 'Uploading large file through proxy (with retry logic)...',
         ...compressionInfo,
       });
 
-      // Upload DIRECTLY to Cloudinary for large files - bypasses Next.js/Vercel limits
-      // This requires CORS to be configured in Cloudinary settings
+      // Use retry logic for very large files (>500MB)
       result = await uploadLargeFileWithRetry(videoFile, folder, (progress) => {
         onProgress?.({
           ...progress,
@@ -415,12 +386,8 @@ export async function uploadVideoDirect(
 
       const formData = new FormData();
       formData.append('file', videoFile);
-      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
       formData.append('folder', folder);
       formData.append('resource_type', 'video');
-      // Add optimization parameters
-      formData.append('eager', 'q_auto:eco,f_auto');
-      formData.append('eager_async', 'true');
 
       // Use fetch with proxy route to avoid CORS issues
       // Note: Upload progress tracking is limited with fetch API through proxy
