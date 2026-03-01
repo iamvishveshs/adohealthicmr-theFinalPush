@@ -217,15 +217,11 @@ export default function Home() {
             setUserRole(data.user.role);
             setIsAdmin(data.user.role === 'admin');
           }
-        } else if (response.status === 401) {
-          // User is not authenticated - this is normal, don't log as error
-          // Silently handle unauthenticated state
+          // If data.success is false, user is not authenticated - this is normal
         }
       } catch (error) {
-        // Only log unexpected errors, not 401s
-        if (error instanceof Error && !error.message.includes('401')) {
-          console.error('Error checking auth:', error);
-        }
+        // Only log unexpected errors
+        console.error('Error checking auth:', error);
       }
     };
     checkAuth();

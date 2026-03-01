@@ -9,7 +9,9 @@ export async function GET(request: NextRequest) {
   try {
     const payload = await getCurrentUser(request);
     if (!payload) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      // Return 200 with success: false instead of 401 to avoid console errors
+      // This is a status check endpoint, not an error condition
+      return NextResponse.json({ success: false, authenticated: false });
     }
 
     // OTP users: userId is otp:email, no store record
