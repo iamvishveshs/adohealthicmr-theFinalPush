@@ -94,6 +94,16 @@ function loadData() {
       if (Array.isArray(videosArr)) {
         videosStore.length = 0;
         for (const v of videosArr) {
+          // Skip videos with base64 data URLs - they should not be persisted
+          // Only load videos with valid Cloudinary URLs or empty preview/fileUrl
+          const hasBase64Preview = v.preview && (v.preview.startsWith('data:') || v.preview.startsWith('blob:'));
+          const hasBase64FileUrl = v.fileUrl && (v.fileUrl.startsWith('data:') || v.fileUrl.startsWith('blob:'));
+          
+          if (hasBase64Preview || hasBase64FileUrl) {
+            console.warn(`Skipping video with base64 data (moduleId: ${v.moduleId}, videoType: ${v.videoType}, videoId: ${v.videoId}). Please re-upload to Cloudinary.`);
+            continue;
+          }
+          
           videosStore.push({
             moduleId: v.moduleId,
             videoType: v.videoType,
@@ -431,8 +441,35 @@ export function getVideos(moduleId?: number, videoType?: string): VideoRecord[] 
   return list;
 }
 
+/**
+ * Validates that preview and fileUrl are not base64 data URLs
+ * Base64 data URLs should never be stored in videos.json - only Cloudinary URLs
+ */
+function validateVideoData(data: VideoRecord): void {
+  // Check if preview contains base64 data
+  if (data.preview && data.preview.startsWith('data:')) {
+    throw new Error('Preview cannot contain base64 data. Use Cloudinary thumbnail URL instead.');
+  }
+  
+  // Check if fileUrl contains base64 data
+  if (data.fileUrl && data.fileUrl.startsWith('data:')) {
+    throw new Error('fileUrl cannot contain base64 data. Use Cloudinary secure_url instead.');
+  }
+  
+  // Check if preview is a blob URL (shouldn't be persisted)
+  if (data.preview && data.preview.startsWith('blob:')) {
+    throw new Error('Preview cannot contain blob URL. Use Cloudinary thumbnail URL instead.');
+  }
+  
+  // Check if fileUrl is a blob URL (shouldn't be persisted)
+  if (data.fileUrl && data.fileUrl.startsWith('blob:')) {
+    throw new Error('fileUrl cannot contain blob URL. Use Cloudinary secure_url instead.');
+  }
+}
+
 export function createVideo(data: VideoRecord): VideoRecord {
   loadData();
+  validateVideoData(data);
   videosStore.push({ ...data });
   persistVideos();
   return data;
@@ -447,7 +484,12 @@ export function updateVideo(
   loadData();
   const i = videosStore.findIndex((v) => v.moduleId === moduleId && v.videoType === videoType && v.videoId === videoId);
   if (i === -1) return null;
-  videosStore[i] = { ...videosStore[i], ...updates };
+  
+  // Validate updates before applying
+  const updatedVideo = { ...videosStore[i], ...updates };
+  validateVideoData(updatedVideo);
+  
+  videosStore[i] = updatedVideo;
   persistVideos();
   return videosStore[i];
 }

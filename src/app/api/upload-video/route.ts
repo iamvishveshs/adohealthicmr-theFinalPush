@@ -32,6 +32,14 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
 
     // Validate required fields - secure_url is preferred but url is acceptable
     if (!publicId || (!url && !secure_url) || !moduleId || !videoType) {
+      console.error('[Upload API] Missing required fields:', {
+        hasPublicId: !!publicId,
+        hasUrl: !!url,
+        hasSecureUrl: !!secure_url,
+        moduleId,
+        videoType,
+        body: JSON.stringify(body).substring(0, 200), // Log first 200 chars for debugging
+      });
       return NextResponse.json(
         { error: 'Missing required fields: publicId, url (or secure_url), moduleId, videoType' },
         { status: 400 }

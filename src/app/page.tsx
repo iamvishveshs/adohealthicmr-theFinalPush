@@ -1240,11 +1240,19 @@ export default function Home() {
                   'Authorization': `Bearer ${token}`,
                 },
                 body: JSON.stringify({
-                  ...result.video,
+                  // Ensure all required fields are present for the metadata endpoint
+                  publicId: result.video.publicId,
+                  url: result.video.url,
+                  secure_url: result.video.secure_url,
+                  format: result.video.format,
+                  duration: result.video.duration,
+                  bytes: result.video.bytes,
+                  width: result.video.width,
+                  height: result.video.height,
                   moduleId,
                   videoType,
-                  fileName: file.name,
-                  fileSize: result.video.fileSize || file.size,
+                  fileName: result.video.fileName || file.name,
+                  fileSize: result.video.fileSize || result.video.bytes || file.size,
                 }),
               });
 
@@ -2729,21 +2737,59 @@ export default function Home() {
                                 // Try to get video URL from fileUrl, or construct from preview if it's a Cloudinary thumbnail
                                 let videoSrc = video.fileUrl || null;
                                 
-                                // If fileUrl is missing but preview is a Cloudinary thumbnail, extract public_id and construct video URL
+                                // If fileUrl is missing, try to use preview if it's already a video URL
+                                if (!videoSrc && video.preview) {
+                                  // Check if preview is already a Cloudinary video URL (not a thumbnail)
+                                  if (video.preview.includes('res.cloudinary.com') && 
+                                      video.preview.includes('/video/upload/') &&
+                                      !video.preview.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i) &&
+                                      !video.preview.includes('/w_') &&
+                                      !video.preview.includes('/h_') &&
+                                      !video.preview.includes('/c_') &&
+                                      !video.preview.includes('/f_jpg')) {
+                                    // Preview is already a video URL, use it directly (but ensure optimizations are applied)
+                                    let optimizedPreview = video.preview;
+                                    if (!optimizedPreview.includes('f_mp4')) {
+                                      // Add video optimizations if not already present
+                                      optimizedPreview = optimizedPreview.replace(
+                                        /\/video\/upload\/([^\/]*)\//,
+                                        '/video/upload/$1,f_mp4,f_auto,q_auto/'
+                                      );
+                                    }
+                                    videoSrc = optimizedPreview;
+                                    console.log('[Video Display] Using preview as video URL:', videoSrc);
+                                  }
+                                }
+                                
+                                // If still no video URL and preview is a Cloudinary thumbnail, extract public_id and construct video URL
                                 if (!videoSrc && video.preview && video.preview.includes('res.cloudinary.com')) {
-                                  // Extract public_id from thumbnail URL
-                                  // Format: https://res.cloudinary.com/{cloud_name}/video/upload/w_640,h_360,c_fill/{public_id}.jpg
-                                  const publicIdMatch = video.preview.match(/\/video\/upload\/[^\/]*\/([^\/\.]+)/);
-                                  if (publicIdMatch) {
-                                    const publicId = publicIdMatch[1];
+                                  try {
+                                    // Extract public_id from thumbnail URL
+                                    // Format: https://res.cloudinary.com/{cloud_name}/video/upload/{transformations}/{public_id}.jpg
+                                    // The public_id can contain folder paths, so we extract everything after transformations and before the file extension
+                                    
                                     const cloudName = video.preview.match(/res\.cloudinary\.com\/([^\/]+)/)?.[1] || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth';
-                                    // Construct video URL with transformations
-                                    videoSrc = `https://res.cloudinary.com/${cloudName}/video/upload/f_mp4,f_auto,q_auto/${publicId}`;
-                                    console.log('[Video Display] Constructed video URL from preview:', {
-                                      preview: video.preview,
-                                      publicId,
-                                      constructedUrl: videoSrc,
-                                    });
+                                    
+                                    // Match: /video/upload/{transformations}/{public_id}.{ext}
+                                    // Transformations are typically in one segment (e.g., "w_640,h_360,c_fill,f_jpg")
+                                    // Public_id can span multiple segments if it's in a folder structure
+                                    const match = video.preview.match(/\/video\/upload\/([^\/]+)\/(.+?)\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i);
+                                    
+                                    if (match && match[2]) {
+                                      const publicId = match[2];
+                                      // Verify the extracted public_id doesn't contain transformation patterns
+                                      // (in case the regex matched incorrectly)
+                                      if (!publicId.match(/^(w_|h_|c_|f_|q_|ar_|dpr_)/)) {
+                                        videoSrc = `https://res.cloudinary.com/${cloudName}/video/upload/f_mp4,f_auto,q_auto/${publicId}`;
+                                        console.log('[Video Display] Constructed video URL from preview:', {
+                                          preview: video.preview,
+                                          publicId,
+                                          constructedUrl: videoSrc,
+                                        });
+                                      }
+                                    }
+                                  } catch (error) {
+                                    console.error('[Video Display] Error extracting public_id from preview:', error);
                                   }
                                 }
                                 
