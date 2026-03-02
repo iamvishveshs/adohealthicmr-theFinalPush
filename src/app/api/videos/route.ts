@@ -53,14 +53,15 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       );
     }
     
-    // Generate preview from publicId if preview is missing
+    // Generate preview from publicId if preview is missing; use placeholder for local fileUrl
     let finalPreview = preview;
     if (!finalPreview && publicId) {
       const { getVideoThumbnail } = await import('@/lib/cloudinary');
       finalPreview = getVideoThumbnail(publicId);
     }
-    
-    // Preview is required - if still missing, return error
+    if (!finalPreview && fileUrl && fileUrl.startsWith('/')) {
+      finalPreview = '/images/video-placeholder.svg';
+    }
     if (!finalPreview) {
       return NextResponse.json(
         { error: 'Preview is required. Please ensure the video upload completed successfully or provide a publicId to generate preview.' },

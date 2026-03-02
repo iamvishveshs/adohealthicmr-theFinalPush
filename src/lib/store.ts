@@ -442,29 +442,25 @@ export function getVideos(moduleId?: number, videoType?: string): VideoRecord[] 
 }
 
 /**
- * Validates that preview and fileUrl are not base64 data URLs
- * Base64 data URLs should never be stored in videos.json - only Cloudinary URLs
+ * Validates that preview and fileUrl are not transient (base64/blob).
+ * Allows Cloudinary URLs and local URLs (paths starting with /).
  */
 function validateVideoData(data: VideoRecord): void {
-  // Check if preview contains base64 data
+  // Reject base64 data URLs (too large to persist)
   if (data.preview && data.preview.startsWith('data:')) {
-    throw new Error('Preview cannot contain base64 data. Use Cloudinary thumbnail URL instead.');
+    throw new Error('Preview cannot contain base64 data. Use a URL (Cloudinary or local) instead.');
   }
-  
-  // Check if fileUrl contains base64 data
   if (data.fileUrl && data.fileUrl.startsWith('data:')) {
-    throw new Error('fileUrl cannot contain base64 data. Use Cloudinary secure_url instead.');
+    throw new Error('fileUrl cannot contain base64 data. Use a URL (Cloudinary or local) instead.');
   }
-  
-  // Check if preview is a blob URL (shouldn't be persisted)
+  // Reject blob URLs (browser-only, not persistable)
   if (data.preview && data.preview.startsWith('blob:')) {
-    throw new Error('Preview cannot contain blob URL. Use Cloudinary thumbnail URL instead.');
+    throw new Error('Preview cannot contain blob URL. Use a URL (Cloudinary or local) instead.');
   }
-  
-  // Check if fileUrl is a blob URL (shouldn't be persisted)
   if (data.fileUrl && data.fileUrl.startsWith('blob:')) {
-    throw new Error('fileUrl cannot contain blob URL. Use Cloudinary secure_url instead.');
+    throw new Error('fileUrl cannot contain blob URL. Use a URL (Cloudinary or local) instead.');
   }
+  // Allow: https:// (Cloudinary), / (local paths)
 }
 
 export function createVideo(data: VideoRecord): VideoRecord {

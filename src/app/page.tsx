@@ -1114,219 +1114,61 @@ export default function Home() {
       if (!proceed) return;
     }
 
-    // Initialize upload progress
+    // Initialize upload progress – upload to local server
     const progressKey = `${moduleId}-${videoType}`;
     
     try {
-      // Step 1: Store video file locally first (IndexedDB)
       setUploadProgress(prev => ({
         ...prev,
         [progressKey]: {
           stage: 'uploading',
           progress: 0,
-          message: 'Storing video file...',
+          message: 'Uploading video...',
           originalSize: file.size,
         },
       }));
 
-      // Video is being stored - no need to show message, will show success after storage
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('moduleId', String(moduleId));
+      formData.append('videoType', videoType);
 
-      // Store video in IndexedDB
-      const storedVideoId = await storeVideo(file, moduleId, videoType);
-      
-      console.log('Video stored locally:', storedVideoId);
-
-      // Show immediate feedback that file is stored
-      showSaveFeedback('success', 'Video stored! Uploading to Cloudinary in background...', { type: 'video', moduleId });
-
-      console.log('[Video Upload] Video stored locally, starting Cloudinary upload...', {
-        storedVideoId,
-        fileName: file.name,
-        fileSize: file.size,
-        moduleId,
-        videoType,
+      const uploadRes = await fetch('/api/upload-video-local', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
       });
 
-      // Don't create blob URL - wait for Cloudinary upload to complete
-      // This prevents ERR_FILE_NOT_FOUND errors from blob URLs
-      const newVideo: any = {
-        id: Date.now(),
-        preview: '', // Will be updated with Cloudinary thumbnail
-        fileName: file.name,
-        fileSize: file.size,
-        fileUrl: '', // Will be updated with Cloudinary secure_url when upload completes
-        publicId: undefined,
-        storedVideoId, // Store the ID for tracking background upload
-      };
+      setUploadProgress(prev => {
+        const next = { ...prev };
+        delete next[progressKey];
+        return next;
+      });
 
-      // Set pending video without blob URL - will update when Cloudinary upload completes
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        showSaveFeedback('error', errData.error || `Upload failed (${uploadRes.status})`, { type: 'video', moduleId });
+        return;
+      }
+
+      const data = await uploadRes.json();
+      const { fileUrl, previewUrl, fileName: savedFileName, fileSize: savedFileSize, videoId } = data;
+
       setPendingVideos(prev => ({
         ...prev,
         [moduleId]: {
           ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
-          [videoType]: [newVideo]
+          [videoType]: [{
+            id: videoId,
+            preview: previewUrl || '/images/video-placeholder.svg',
+            fileName: savedFileName || file.name,
+            fileSize: savedFileSize ?? file.size,
+            fileUrl,
+          }]
         }
       }));
 
-      // Step 2: Upload to Cloudinary in background (non-blocking)
-      // This runs asynchronously and updates progress
-      let lastMessageProgress = 0; // Track last message shown to avoid spam
-      
-      uploadVideoInBackground(storedVideoId, (progress) => {
-        // Always update progress state (for progress bar)
-        setUploadProgress(prev => ({
-          ...prev,
-          [progressKey]: progress,
-        }));
-
-        // Only show messages at 50% and 100% to avoid spam
-        if (progress.stage === 'uploading') {
-          // Show message at 50% (only once)
-          if (progress.progress >= 50 && lastMessageProgress < 50) {
-            lastMessageProgress = 50;
-            // Show 50% progress - using success type for info message
-            showSaveFeedback('success', `Uploading to Cloudinary... 50%`, { type: 'video', moduleId });
-          }
-          // 100% message will be shown in the .then() below
-        }
-      }).then(async (result) => {
-        console.log('[Video Upload] Cloudinary upload result:', result);
-        
-        if (result.success && result.video) {
-          // Upload complete - use secure_url for HTTPS playback
-          // Prefer secure_url over url for better security and compatibility
-          const videoUrl = result.video.secure_url || result.video.url;
-          const publicId = result.video.publicId;
-          
-          if (!videoUrl) {
-            console.error('[Video Upload] No video URL returned from Cloudinary upload:', result);
-            showSaveFeedback('error', 'Upload completed but video URL is missing. Please try again.', { type: 'video', moduleId });
-            return;
-          }
-          
-          // Apply Cloudinary transformations: f_mp4 for explicit format, f_auto for fallback, q_auto for quality
-          // Format: /upload/f_mp4,f_auto,q_auto/
-          let optimizedVideoUrl = videoUrl;
-          if (videoUrl.includes('/upload/') && !videoUrl.includes('f_mp4')) {
-            // Remove any existing transformations first
-            optimizedVideoUrl = videoUrl.replace(/\/upload\/[^\/]+\//, '/upload/');
-            // Apply transformations
-            optimizedVideoUrl = optimizedVideoUrl.replace('/upload/', '/upload/f_mp4,f_auto,q_auto/');
-          }
-          
-          console.log('[Video Upload] Video URL optimized:', {
-            original: videoUrl,
-            optimized: optimizedVideoUrl,
-            publicId,
-          });
-          
-          // Generate preview thumbnail from Cloudinary
-          const preview = publicId 
-            ? `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth'}/video/upload/w_640,h_360,c_fill/${publicId}.jpg`
-            : optimizedVideoUrl;
-
-          // Save video metadata to backend immediately for preview
-          try {
-            const token = localStorage.getItem('authToken');
-            if (token) {
-              const metadataResponse = await fetch('/api/upload-video', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  // Ensure all required fields are present for the metadata endpoint
-                  publicId: result.video.publicId,
-                  url: result.video.url,
-                  secure_url: result.video.secure_url,
-                  format: result.video.format,
-                  duration: result.video.duration,
-                  bytes: result.video.bytes,
-                  width: result.video.width,
-                  height: result.video.height,
-                  moduleId,
-                  videoType,
-                  fileName: result.video.fileName || file.name,
-                  fileSize: result.video.fileSize || result.video.bytes || file.size,
-                }),
-              });
-
-              if (metadataResponse.ok) {
-                const metadataData = await metadataResponse.json();
-                console.log('[Video Upload] Video metadata saved:', metadataData);
-                
-                // Use the fileUrl from the saved video if available
-                if (metadataData.video?.fileUrl) {
-                  optimizedVideoUrl = metadataData.video.fileUrl;
-                }
-              } else {
-                console.warn('[Video Upload] Failed to save metadata, but video is uploaded:', await metadataResponse.text());
-              }
-            }
-          } catch (metadataError) {
-            console.error('[Video Upload] Error saving metadata:', metadataError);
-            // Continue even if metadata save fails - video is still uploaded
-          }
-
-          // Update pending video with Cloudinary info - use optimized secure_url
-          // This triggers React re-render with the correct Cloudinary URL for immediate preview
-          setPendingVideos(prev => {
-            const updated = {
-              ...prev,
-              [moduleId]: {
-                ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
-                [videoType]: [{
-                  ...newVideo,
-                  preview, // Cloudinary thumbnail
-                  fileUrl: optimizedVideoUrl, // Cloudinary secure_url with transformations for immediate preview
-                  publicId,
-                }]
-              }
-            };
-            
-            console.log('[Video Upload] Updated pending videos state for immediate preview:', updated[moduleId]?.[videoType]);
-            return updated;
-          });
-
-          // Clear upload progress
-          setUploadProgress(prev => {
-            const updated = { ...prev };
-            delete updated[progressKey];
-            return updated;
-          });
-
-          console.log('[Video Upload] Upload complete, video ready for immediate preview:', {
-            fileUrl: optimizedVideoUrl,
-            preview,
-            publicId,
-            fileName: file.name,
-            fileSize: file.size,
-          });
-
-          showSaveFeedback('success', 'Video uploaded! You can preview it below. Click "Save Video" to make it available to all users.', { type: 'video', moduleId });
-        } else {
-          // Upload failed
-          console.error('[Video Upload] Upload failed:', result.error);
-          
-          setUploadProgress(prev => {
-            const updated = { ...prev };
-            delete updated[progressKey];
-            return updated;
-          });
-
-          showSaveFeedback('error', `Background upload failed: ${result.error || 'Unknown error'}. Video is stored locally and will retry.`, { type: 'video', moduleId });
-        }
-      }).catch((error) => {
-        console.error('[Video Upload] Background upload error:', error);
-        setUploadProgress(prev => {
-          const updated = { ...prev };
-          delete updated[progressKey];
-          return updated;
-        });
-
-        showSaveFeedback('error', `Upload error: ${error.message || 'Unknown error'}. Video is stored locally.`, { type: 'video', moduleId });
-      });
+      showSaveFeedback('success', 'Video uploaded! Preview below and click "Save Video" to make it available to all users.', { type: 'video', moduleId });
     } catch (error: any) {
       console.error('Error uploading video:', error);
       
@@ -1372,29 +1214,29 @@ export default function Home() {
     }
     
     try {
-      // Get the next video ID for this module and video type
+      // Use videoId from pending (set by local upload) or compute next
       const existingVideos = videos[moduleId]?.[videoType] || [];
-      const nextVideoId = existingVideos.length > 0 
-        ? Math.max(...existingVideos.map(v => v.id)) + 1 
-        : 1;
+      const nextVideoId = typeof videoToSave.id === 'number' && Number.isInteger(videoToSave.id)
+        ? videoToSave.id
+        : (existingVideos.length > 0 ? Math.max(...existingVideos.map(v => v.id)) + 1 : 1);
       
-      // Generate preview if missing (from publicId or fileUrl)
+      // Preview: use existing, or Cloudinary thumbnail, or placeholder for local fileUrl
       let preview = videoToSave.preview;
       if (!preview || preview === '') {
-        // Try to generate preview from publicId or fileUrl
         if (videoToSave.publicId) {
-          // Import getVideoThumbnail dynamically
           const { getVideoThumbnail } = await import('@/lib/cloudinary');
           preview = getVideoThumbnail(videoToSave.publicId);
         } else if (videoToSave.fileUrl) {
-          // Extract publicId from Cloudinary URL if possible
-          const urlMatch = videoToSave.fileUrl.match(/\/v\d+\/(.+?)(?:\.[^.]+)?$/);
-          if (urlMatch) {
-            const { getVideoThumbnail } = await import('@/lib/cloudinary');
-            preview = getVideoThumbnail(urlMatch[1]);
+          if (videoToSave.fileUrl.startsWith('/')) {
+            preview = '/images/video-placeholder.svg';
           } else {
-            // Use a placeholder or the fileUrl itself as preview
-            preview = videoToSave.fileUrl;
+            const urlMatch = videoToSave.fileUrl.match(/\/v\d+\/(.+?)(?:\.[^.]+)?$/);
+            if (urlMatch) {
+              const { getVideoThumbnail } = await import('@/lib/cloudinary');
+              preview = getVideoThumbnail(urlMatch[1]);
+            } else {
+              preview = videoToSave.fileUrl;
+            }
           }
         } else {
           showSaveFeedback('error', 'Video preview is not available. Please wait for the upload to complete.');
@@ -1402,16 +1244,15 @@ export default function Home() {
         }
       }
       
-      // Create video via API - include fileUrl and publicId for playback and preview generation
       const videoData: VideoData & { publicId?: string } = {
         moduleId,
         videoType: videoType as 'english' | 'punjabi' | 'hindi' | 'activity',
         videoId: nextVideoId,
-        preview: preview, // Use generated preview
+        preview,
         fileName: videoToSave.fileName,
         fileSize: videoToSave.fileSize,
-        fileUrl: videoToSave.fileUrl || '', // Include fileUrl for video playback
-        publicId: videoToSave.publicId, // Include publicId for preview generation if needed
+        fileUrl: videoToSave.fileUrl || '',
+        publicId: videoToSave.publicId,
       };
       
       const response = await createVideo(videoData);
@@ -2678,12 +2519,12 @@ export default function Home() {
                               {isAdmin && hasPendingVideo && !hasSavedVideo && displayVideo && displayVideo.length > 0 && (() => {
                                 const pendingVideo = displayVideo[0];
                                 
-                                // Only use Cloudinary secure_url - never use blob URLs
-                                // Blob URLs cause ERR_FILE_NOT_FOUND errors
+                                // Source: local path or Cloudinary URL (never blob URLs)
                                 const pendingVideoSrc = pendingVideo.fileUrl || null;
-                                const pendingVideoPoster = pendingVideo.preview && 
-                                  !pendingVideo.preview.includes('/video/upload/') && 
-                                  pendingVideo.preview.startsWith('https://') ? pendingVideo.preview : undefined;
+                                const pendingVideoPoster = pendingVideo.preview && (
+                                  pendingVideo.preview.startsWith('/') ||
+                                  (pendingVideo.preview.startsWith('https://') && !pendingVideo.preview.includes('/video/upload/'))
+                                ) ? pendingVideo.preview : undefined;
                                 
                                 console.log('[Video Display] Pending video:', {
                                   hasFileUrl: !!pendingVideo.fileUrl,
@@ -2763,10 +2604,9 @@ export default function Home() {
                               {hasSavedVideo && displayVideo && displayVideo.length > 0 && (() => {
                                 const video = displayVideo[0];
                                 
-                                // Try to get video URL from fileUrl, or construct from preview if it's a Cloudinary thumbnail
+                                // Video source: local path (/uploads/videos/...) or Cloudinary URL
                                 let videoSrc = video.fileUrl || null;
-                                
-                                // If fileUrl is missing, try to use preview if it's already a video URL
+                                // If fileUrl missing, try to use preview if it's already a video URL
                                 if (!videoSrc && video.preview) {
                                   // Check if preview is already a Cloudinary video URL (not a thumbnail)
                                   if (video.preview.includes('res.cloudinary.com') && 
@@ -2822,10 +2662,11 @@ export default function Home() {
                                   }
                                 }
                                 
-                                // Use preview as poster/thumbnail only if it's a Cloudinary image URL
-                                const videoPoster = video.preview && 
-                                  video.preview.startsWith('https://res.cloudinary.com') && 
-                                  !video.preview.includes('/video/upload/') ? video.preview : undefined;
+                                // Poster: Cloudinary image URL or local placeholder
+                                const videoPoster = video.preview && (
+                                  (video.preview.startsWith('https://res.cloudinary.com') && !video.preview.includes('/video/upload/'))
+                                  || video.preview.startsWith('/')
+                                ) ? video.preview : undefined;
                                 
                                 // Log video data for debugging
                                 console.log('[Video Display] Saved video:', { 

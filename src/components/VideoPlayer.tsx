@@ -296,15 +296,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             console.log('[VideoPlayer] Video data loaded:', optimizedUrl);
           }}
         >
-          {/* Primary source - Cloudinary videos with f_mp4,q_auto for best compatibility */}
-          {urlValid && (
+          {/* Local paths: single source, browser detects type from extension */}
+          {urlValid && optimizedUrl.startsWith('/') && (
+            <source src={optimizedUrl} />
+          )}
+          {/* Cloudinary: explicit type and fallbacks */}
+          {urlValid && !optimizedUrl.startsWith('/') && (
             <>
               <source src={optimizedUrl} type="video/mp4" />
-              {/* Fallback: try original secure_url if optimized URL fails */}
               {optimizedUrl.includes('res.cloudinary.com') && optimizedUrl.includes('f_mp4') && (
                 <source src={optimizedUrl.replace('f_mp4,q_auto', 'q_auto')} type="video/mp4" />
               )}
-              {/* Fallback for non-Cloudinary videos */}
               {!optimizedUrl.includes('res.cloudinary.com') && (
                 <>
                   <source src={optimizedUrl} type="video/webm" />
