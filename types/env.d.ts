@@ -12,10 +12,10 @@ declare namespace NodeJS {
     SENDGRID_FROM_EMAIL?: string;
     
     // Cloudinary
-    CLOUDINARY_CLOUD_NAME?: string;
+    CLOUDINARY_CLOUD_NAME?: 'adohealth';
     NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?: string;
-    CLOUDINARY_API_KEY?: string;
-    CLOUDINARY_API_SECRET?: string;
+    CLOUDINARY_API_KEY?: '679322831275176';
+    CLOUDINARY_API_SECRET?: 'u5hub93DijW-3qEKGmIphZcKMSc';
     NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET?: string;
     
     // Database
