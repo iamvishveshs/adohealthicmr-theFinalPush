@@ -662,10 +662,10 @@ export default function Home() {
   // Pending videos - uploaded but not yet saved (only visible to admin)
   const [pendingVideos, setPendingVideos] = useState<{
     [moduleId: number]: {
-      english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
-      punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
-      hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
-      activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string }> | null;
+      english: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string; publicId?: string }> | null;
+      punjabi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string; publicId?: string }> | null;
+      hindi: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string; publicId?: string }> | null;
+      activity: Array<{ id: number; preview: string; fileName: string; fileSize: number; fileUrl?: string; publicId?: string }> | null;
     };
   }>({});
 
