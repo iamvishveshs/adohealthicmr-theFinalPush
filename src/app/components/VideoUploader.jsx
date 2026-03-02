@@ -163,6 +163,23 @@ export default function VideoUploader() {
     <div className="video-uploader-container" style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
       <h2 style={{ marginBottom: '20px' }}>Video Uploader</h2>
 
+      {/* Upload Tips */}
+      <div style={{ 
+        marginBottom: '20px', 
+        padding: '15px', 
+        backgroundColor: '#e3f2fd', 
+        borderRadius: '8px',
+        border: '1px solid #90caf9'
+      }}>
+        <h4 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>💡 Tips for Faster Uploads:</h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#1976d2', fontSize: '14px' }}>
+          <li><strong>Compress videos before uploading</strong> - Use tools like Handbrake or online compressors to reduce file size</li>
+          <li><strong>Use shorter videos when possible</strong> - Keep videos under 5 minutes for faster uploads</li>
+          <li><strong>Ensure stable internet connection</strong> - A fast, stable connection significantly improves upload speed</li>
+          <li><strong>Use direct Cloudinary upload</strong> - For large files (250MB+), use the direct upload option</li>
+        </ul>
+      </div>
+
       {/* File Selection */}
       <div style={{ marginBottom: '20px' }}>
         <label
