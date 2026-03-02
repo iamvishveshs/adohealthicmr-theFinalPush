@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/backend/lib/auth';
 import { getVideos } from '@/lib/store';
-import * as fs from 'fs';
-import * as path from 'path';
+import { uploadVideoStreamFromFile, getVideoThumbnail } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
-
-// Store videos under public so they are served at /uploads/videos/...
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'videos');
-const PLACEHOLDER_PREVIEW = '/images/video-placeholder.svg';
-
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'video';
-}
+export const runtime = 'nodejs';
 
 export const POST = requireAdmin(async (request: NextRequest, user) => {
   try {
@@ -44,37 +36,45 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       return NextResponse.json({ error: 'File must be a video' }, { status: 400 });
     }
 
-    const ext = path.extname(file.name) || '.mp4';
-    const baseName = sanitizeFilename(path.basename(file.name, ext));
-    const nextVideoId = (() => {
-      const existing = getVideos(moduleId, videoType);
-      return existing.length > 0 ? Math.max(...existing.map((v) => v.videoId)) + 1 : 1;
-    })();
-    const filename = `${moduleId}_${videoType}_${nextVideoId}_${Date.now()}_${baseName}${ext}`;
+    // Determine next videoId for this module/videoType
+    const existing = getVideos(moduleId, videoType);
+    const nextVideoId =
+      existing.length > 0 ? Math.max(...existing.map((v) => v.videoId)) + 1 : 1;
 
-    if (!fs.existsSync(UPLOAD_DIR)) {
-      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    // Upload directly to Cloudinary using upload_stream with resource_type: "video"
+    // Store in folder: adohealthicmr/videos/{moduleId}/{language}
+    const folder = `adohealthicmr/videos/${moduleId}/${videoType}`;
+    const uploadResult = await uploadVideoStreamFromFile(file, folder, {
+      quality: 'auto:good',
+      maxWidth: 1920,
+      maxHeight: 1080,
+    });
+
+    const secureUrl = uploadResult.secure_url || uploadResult.url;
+    if (!secureUrl) {
+      return NextResponse.json(
+        { error: 'Upload to Cloudinary succeeded but no URL was returned' },
+        { status: 500 }
+      );
     }
 
-    const filePath = path.join(UPLOAD_DIR, filename);
-    const bytes = await file.arrayBuffer();
-    fs.writeFileSync(filePath, Buffer.from(bytes));
-
-    // Public URL: same origin, so relative path works for both user and admin
-    const fileUrl = `/uploads/videos/${filename}`;
+    // Generate a Cloudinary thumbnail for preview
+    const previewUrl = getVideoThumbnail(uploadResult.public_id, 640, 360);
 
     return NextResponse.json({
       success: true,
-      fileUrl,
-      previewUrl: PLACEHOLDER_PREVIEW,
+      secure_url: secureUrl,
+      fileUrl: secureUrl,
+      previewUrl,
       fileName: file.name,
       fileSize: file.size,
       moduleId,
       videoType,
       videoId: nextVideoId,
+      publicId: uploadResult.public_id,
     });
   } catch (error) {
-    console.error('Error uploading video locally:', error);
+    console.error('Error uploading video to Cloudinary:', error);
     return NextResponse.json(
       {
         error: 'Failed to upload video',

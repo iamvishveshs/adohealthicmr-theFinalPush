@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
 
-// Configure Cloudinary using environment variables
-const cloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+// Configure Cloudinary using server-side environment variables only
+const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey = process.env.CLOUDINARY_API_KEY;
 const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
@@ -15,7 +15,7 @@ if (!cloudName || !apiKey || !apiSecret) {
     hasApiSecret: !!apiSecret,
   });
   console.error('[Cloudinary Config] Please set in .env.local:');
-  if (!cloudName) console.error('  - CLOUDINARY_CLOUD_NAME or NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME');
+  if (!cloudName) console.error('  - CLOUDINARY_CLOUD_NAME');
   if (!apiKey) console.error('  - CLOUDINARY_API_KEY');
   if (!apiSecret) console.error('  - CLOUDINARY_API_SECRET');
 } else {
@@ -41,7 +41,7 @@ export const maxDuration = 300; // 5 minutes for large video uploads
  * Streams the file directly to Cloudinary without loading entire file into memory.
  * 
  * Environment variables required:
- * - CLOUDINARY_CLOUD_NAME (or NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME)
+ * - CLOUDINARY_CLOUD_NAME
  * - CLOUDINARY_API_KEY
  * - CLOUDINARY_API_SECRET
  * 
@@ -59,7 +59,7 @@ export async function POST(request) {
 
   try {
     // Step 1: Validate Cloudinary configuration
-    const configCloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const configCloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const configApiKey = process.env.CLOUDINARY_API_KEY;
     const configApiSecret = process.env.CLOUDINARY_API_SECRET;
 

@@ -17,7 +17,7 @@ import RiskFactorsSection from "../components/RiskFactorsSection";
 import Footer from "../components/Footer";
 import UploadProgressBar from "../components/UploadProgressBar";
 import VideoPlayer from "../components/VideoPlayer";
-import { UploadProgress } from "../lib/cloudinary-direct-upload";
+import { UploadProgress, uploadVideoDirect } from "../lib/cloudinary-direct-upload";
 import { storeVideo, uploadVideoInBackground, processPendingUploads, getPendingUploads, type StoredVideo } from "../lib/video-storage";
 
 interface Question {
@@ -1114,10 +1114,11 @@ export default function Home() {
       if (!proceed) return;
     }
 
-    // Initialize upload progress – upload to local server
+    // Initialize upload progress – upload to Cloudinary via proxy route
     const progressKey = `${moduleId}-${videoType}`;
     
     try {
+      // Seed initial progress state
       setUploadProgress(prev => ({
         ...prev,
         [progressKey]: {
@@ -1128,50 +1129,117 @@ export default function Home() {
         },
       }));
 
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('moduleId', String(moduleId));
-      formData.append('videoType', videoType);
-
-      const uploadRes = await fetch('/api/upload-video-local', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
+      // Step 1: Upload to Cloudinary via proxy route
+      const uploadResult = await uploadVideoDirect(file, moduleId, videoType, {
+        onProgress: (progress) => {
+          setUploadProgress(prev => ({
+            ...prev,
+            [progressKey]: progress,
+          }));
+        },
       });
 
-      setUploadProgress(prev => {
-        const next = { ...prev };
-        delete next[progressKey];
-        return next;
-      });
-
-      if (!uploadRes.ok) {
-        const errData = await uploadRes.json().catch(() => ({}));
-        showSaveFeedback('error', errData.error || `Upload failed (${uploadRes.status})`, { type: 'video', moduleId });
+      if (!uploadResult.success || !uploadResult.video) {
+        const errorMessage = uploadResult.error || 'Upload failed';
+        showSaveFeedback('error', errorMessage, { type: 'video', moduleId });
+        setUploadProgress(prev => {
+          const updated = { ...prev };
+          delete updated[progressKey];
+          return updated;
+        });
         return;
       }
 
-      const data = await uploadRes.json();
-      const { fileUrl, previewUrl, fileName: savedFileName, fileSize: savedFileSize, videoId } = data;
+      const videoInfo = uploadResult.video;
 
-      setPendingVideos(prev => ({
-        ...prev,
-        [moduleId]: {
-          ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
-          [videoType]: [{
-            id: videoId,
-            preview: previewUrl || '/images/video-placeholder.svg',
-            fileName: savedFileName || file.name,
-            fileSize: savedFileSize ?? file.size,
-            fileUrl,
-          }]
+      // Step 2: Save video metadata to backend (/api/upload-video)
+      let savedVideo: any | null = null;
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+
+        const metadataRes = await fetch('/api/upload-video', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            publicId: videoInfo.publicId,
+            url: videoInfo.url,
+            secure_url: videoInfo.secure_url,
+            format: videoInfo.format,
+            duration: videoInfo.duration,
+            bytes: videoInfo.bytes,
+            width: videoInfo.width,
+            height: videoInfo.height,
+            fileName: videoInfo.fileName ?? file.name,
+            fileSize: videoInfo.fileSize ?? file.size,
+            moduleId,
+            videoType,
+          }),
+        });
+
+        if (!metadataRes.ok) {
+          const errData = await metadataRes.json().catch(() => ({}));
+          const message = errData.error || `Failed to save video metadata (${metadataRes.status})`;
+          throw new Error(message);
         }
-      }));
 
-      showSaveFeedback('success', 'Video uploaded! Preview below and click "Save Video" to make it available to all users.', { type: 'video', moduleId });
+        const metadata = await metadataRes.json();
+        savedVideo = metadata.video || null;
+      } catch (metadataError: any) {
+        console.error('Error saving video metadata:', metadataError);
+        const message = metadataError?.message || 'Failed to save video metadata';
+        showSaveFeedback('error', message, { type: 'video', moduleId });
+
+        setUploadProgress(prev => {
+          const updated = { ...prev };
+          delete updated[progressKey];
+          return updated;
+        });
+        return;
+      }
+
+      // Step 3: Update pending videos with Cloudinary URL and thumbnail
+      if (savedVideo) {
+        const fileUrl =
+          savedVideo.fileUrl ||
+          savedVideo.url ||
+          savedVideo.secure_url ||
+          videoInfo.secure_url ||
+          videoInfo.url;
+
+        setPendingVideos(prev => ({
+          ...prev,
+          [moduleId]: {
+            ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
+            [videoType]: [{
+              id: savedVideo.videoId,
+              preview: savedVideo.preview || '/images/video-placeholder.svg',
+              fileName: savedVideo.fileName || file.name,
+              fileSize: savedVideo.fileSize ?? file.size,
+              fileUrl,
+            }],
+          },
+        }));
+      }
+
+      // Clear upload progress now that everything is done
+      setUploadProgress(prev => {
+        const updated = { ...prev };
+        delete updated[progressKey];
+        return updated;
+      });
+
+      showSaveFeedback(
+        'success',
+        'Video uploaded to Cloudinary! Preview below and click "Save Video" to make it available to all users.',
+        { type: 'video', moduleId }
+      );
     } catch (error: any) {
       console.error('Error uploading video:', error);
-      
+
       // Clear upload progress on error
       setUploadProgress(prev => {
         const updated = { ...prev };
@@ -1188,7 +1256,7 @@ export default function Home() {
       } else if (errorMessage.includes('Network')) {
         errorMessage = 'Network error. Please check your connection and try again.';
       }
-      
+
       showSaveFeedback('error', `Failed to upload video: ${errorMessage}`, { type: 'video', moduleId });
     } finally {
       // Reset input

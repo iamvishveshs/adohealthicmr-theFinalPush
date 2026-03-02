@@ -442,25 +442,44 @@ export function getVideos(moduleId?: number, videoType?: string): VideoRecord[] 
 }
 
 /**
- * Validates that preview and fileUrl are not transient (base64/blob).
- * Allows Cloudinary URLs and local URLs (paths starting with /).
+ * validateVideoData(video)
+ *
+ * Ensures video preview/fileUrl:
+ * - Are Cloudinary URLs (must start with https://res.cloudinary.com/)
+ * - Are NOT data: URLs
+ * - Are NOT blob: URLs
+ * - Are NOT local paths such as /public/uploads
  */
-function validateVideoData(data: VideoRecord): void {
-  // Reject base64 data URLs (too large to persist)
-  if (data.preview && data.preview.startsWith('data:')) {
-    throw new Error('Preview cannot contain base64 data. Use a URL (Cloudinary or local) instead.');
-  }
-  if (data.fileUrl && data.fileUrl.startsWith('data:')) {
-    throw new Error('fileUrl cannot contain base64 data. Use a URL (Cloudinary or local) instead.');
-  }
-  // Reject blob URLs (browser-only, not persistable)
-  if (data.preview && data.preview.startsWith('blob:')) {
-    throw new Error('Preview cannot contain blob URL. Use a URL (Cloudinary or local) instead.');
-  }
-  if (data.fileUrl && data.fileUrl.startsWith('blob:')) {
-    throw new Error('fileUrl cannot contain blob URL. Use a URL (Cloudinary or local) instead.');
-  }
-  // Allow: https:// (Cloudinary), / (local paths)
+function validateVideoData(video: VideoRecord): void {
+  const isCloudinaryUrl = (value: string | undefined | null) =>
+    !!value && value.startsWith('https://res.cloudinary.com/');
+
+  const rejectIfInvalid = (value: string | undefined | null) => {
+    if (!value) return;
+
+    // Reject data: URLs
+    if (value.startsWith('data:')) {
+      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
+    }
+
+    // Reject blob: URLs
+    if (value.startsWith('blob:')) {
+      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
+    }
+
+    // Reject local paths like /public/uploads
+    if (value.includes('/public/uploads')) {
+      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
+    }
+
+    // Enforce Cloudinary-only URLs
+    if (!isCloudinaryUrl(value)) {
+      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
+    }
+  };
+
+  rejectIfInvalid(video.preview);
+  rejectIfInvalid(video.fileUrl);
 }
 
 export function createVideo(data: VideoRecord): VideoRecord {
