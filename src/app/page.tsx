@@ -2566,8 +2566,8 @@ export default function Home() {
                                     </div>
                                   </label>
                                   
-                                  {/* Upload Progress Bar - Shows during upload */}
-                                  {currentProgress && (
+                                  {/* Upload Progress Bar - Shows during upload, hides when complete or pending video exists */}
+                                  {currentProgress && currentProgress.stage !== 'complete' && !hasPendingVideo && (
                                     <div className="mt-4">
                                       <UploadProgressBar
                                         progress={currentProgress.progress}
@@ -2578,6 +2578,17 @@ export default function Home() {
                                         uploadedBytes={currentProgress.uploadedBytes}
                                         totalBytes={currentProgress.totalBytes}
                                       />
+                                    </div>
+                                  )}
+                                  {/* Show completion message briefly when upload completes */}
+                                  {currentProgress && currentProgress.stage === 'complete' && !hasPendingVideo && (
+                                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                      <p className="text-sm text-green-800 font-medium">
+                                        ✅ {currentProgress.message}
+                                      </p>
+                                      <p className="text-xs text-green-600 mt-1">
+                                        Processing video metadata...
+                                      </p>
                                     </div>
                                   )}
                                 </div>
