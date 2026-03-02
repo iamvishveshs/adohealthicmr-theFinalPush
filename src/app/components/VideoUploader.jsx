@@ -9,7 +9,7 @@ import { useState, useRef } from 'react';
  * - Local video preview
  * - Upload progress tracking
  * - Support for large files (250MB+)
- * - Uses unsigned preset "ml_default"
+ * - Uses signed upload for security
  * - Uploads to "videos/" folder
  */
 export default function VideoUploader() {
@@ -22,7 +22,6 @@ export default function VideoUploader() {
   const fileInputRef = useRef(null);
 
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth';
-  const uploadPreset = 'ml_default';
   const folder = 'videos';
 
   // Handle file selection
@@ -61,8 +60,8 @@ export default function VideoUploader() {
     }
   };
 
-  // Handle upload to Cloudinary
-  const handleUpload = () => {
+  // Handle upload to Cloudinary with signed upload
+  const handleUpload = async () => {
     if (!selectedFile) {
       setError('Please select a video file first');
       return;
@@ -78,63 +77,77 @@ export default function VideoUploader() {
     setUploadProgress(0);
     setUploadResult(null);
 
-    // Create FormData
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('upload_preset', uploadPreset);
-    formData.append('folder', folder);
-    formData.append('resource_type', 'video');
-
-    // Use XMLHttpRequest for progress tracking (fetch doesn't support upload progress)
-    const xhr = new XMLHttpRequest();
-    const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
-
-    // Track upload progress
-    xhr.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable) {
-        const percentComplete = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(percentComplete);
+    try {
+      // Get signature from server for signed upload
+      const sigRes = await fetch('/api/signature');
+      if (!sigRes.ok) {
+        throw new Error('Failed to get upload signature');
       }
-    });
+      const { timestamp, signature, apiKey } = await sigRes.json();
 
-    // Handle successful upload
-    xhr.addEventListener('load', () => {
-      if (xhr.status === 200) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          setUploadResult(response);
-          setUploading(false);
-          setUploadProgress(100);
-        } catch (parseError) {
-          setError('Failed to parse upload response');
+      // Create FormData with signed parameters
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('api_key', apiKey);
+      formData.append('timestamp', timestamp);
+      formData.append('signature', signature);
+      formData.append('folder', folder);
+      formData.append('resource_type', 'video');
+
+      // Use XMLHttpRequest for progress tracking
+      const xhr = new XMLHttpRequest();
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
+
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(percentComplete);
+        }
+      });
+
+      // Handle successful upload
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            setUploadResult(response);
+            setUploading(false);
+            setUploadProgress(100);
+          } catch (parseError) {
+            setError('Failed to parse upload response');
+            setUploading(false);
+          }
+        } else {
+          try {
+            const errorResponse = JSON.parse(xhr.responseText);
+            setError(errorResponse.error?.message || `Upload failed with status ${xhr.status}`);
+          } catch {
+            setError(`Upload failed with status ${xhr.status}`);
+          }
           setUploading(false);
         }
-      } else {
-        try {
-          const errorResponse = JSON.parse(xhr.responseText);
-          setError(errorResponse.error?.message || `Upload failed with status ${xhr.status}`);
-        } catch {
-          setError(`Upload failed with status ${xhr.status}`);
-        }
+      });
+
+      // Handle upload errors
+      xhr.addEventListener('error', () => {
+        setError('Network error occurred during upload. Please check your internet connection.');
         setUploading(false);
-      }
-    });
+      });
 
-    // Handle upload errors
-    xhr.addEventListener('error', () => {
-      setError('Network error occurred during upload. Please check your internet connection.');
+      // Handle upload abort
+      xhr.addEventListener('abort', () => {
+        setError('Upload was cancelled');
+        setUploading(false);
+      });
+
+      // Start upload
+      xhr.open('POST', uploadUrl);
+      xhr.send(formData);
+    } catch (err) {
+      setError('Failed to initialize upload: ' + err.message);
       setUploading(false);
-    });
-
-    // Handle upload abort
-    xhr.addEventListener('abort', () => {
-      setError('Upload was cancelled');
-      setUploading(false);
-    });
-
-    // Start upload
-    xhr.open('POST', uploadUrl);
-    xhr.send(formData);
+    }
   };
 
   // Handle reset
@@ -162,6 +175,23 @@ export default function VideoUploader() {
   return (
     <div className="video-uploader-container" style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
       <h2 style={{ marginBottom: '20px' }}>Video Uploader</h2>
+
+      {/* Upload Tips */}
+      <div style={{ 
+        marginBottom: '20px', 
+        padding: '15px', 
+        backgroundColor: '#e3f2fd', 
+        borderRadius: '8px',
+        border: '1px solid #90caf9'
+      }}>
+        <h4 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>💡 Tips for Faster Uploads:</h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#1976d2', fontSize: '14px' }}>
+          <li><strong>Compress videos before uploading</strong> - Use tools like Handbrake or online compressors to reduce file size</li>
+          <li><strong>Use shorter videos when possible</strong> - Keep videos under 5 minutes for faster uploads</li>
+          <li><strong>Ensure stable internet connection</strong> - A fast, stable connection significantly improves upload speed</li>
+          <li><strong>Use direct Cloudinary upload</strong> - For large files (250MB+), use the direct upload option</li>
+        </ul>
+      </div>
 
       {/* File Selection */}
       <div style={{ marginBottom: '20px' }}>
