@@ -140,11 +140,39 @@ export async function getAllUsers(opts?: { role?: 'user' | 'admin'; search?: str
 export async function createUser(data: Omit<UserRecord, 'passwordHash'> & { password: string }): Promise<UserRecord> {
   if (!hasDatabase()) throw new Error('Database not configured');
   await ensureAuthSchema();
+  
+  // Check if user already exists by username or email
+  const existingByUsername = await getUserByUsername(data.username);
+  if (existingByUsername) {
+    throw new Error(`User with username "${data.username}" already exists`);
+  }
+  const existingByEmail = await getUserByEmail(data.email);
+  if (existingByEmail) {
+    throw new Error(`User with email "${data.email}" already exists`);
+  }
+  
   const passwordHash = bcrypt.hashSync(data.password, 10);
-  await run(
-    'INSERT INTO users (id, username, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
-    [data.id, data.username, data.email, passwordHash, data.role]
-  );
+  try {
+    await run(
+      'INSERT INTO users (id, username, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
+      [data.id, data.username, data.email, passwordHash, data.role]
+    );
+  } catch (err: any) {
+    // Handle PostgreSQL unique constraint violations
+    if (err?.code === '23505') {
+      // Unique constraint violation - user already exists
+      const constraint = err?.constraint || '';
+      if (constraint.includes('username')) {
+        throw new Error(`User with username "${data.username}" already exists`);
+      } else if (constraint.includes('email')) {
+        throw new Error(`User with email "${data.email}" already exists`);
+      } else {
+        throw new Error('User already exists');
+      }
+    }
+    // Re-throw other errors
+    throw err;
+  }
   return {
     id: data.id,
     username: data.username,

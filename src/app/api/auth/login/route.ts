@@ -83,15 +83,47 @@ export async function POST(request: NextRequest) {
       if (!user) {
         try {
           user = await createUserByEmail(trimmedEmail, password);
-        } catch (err) {
+        } catch (err: any) {
           console.error('Create user by email error:', err);
-          return NextResponse.json({ error: 'Sign up failed', message: 'Could not create account. Try again or use a different email.' }, { status: 500 });
+          // Check if it's a duplicate user error (user was created between check and insert)
+          const isDuplicateError = err?.code === '23505' || 
+                                   err?.message?.includes('duplicate') || 
+                                   err?.message?.includes('already exists') ||
+                                   err?.message?.toLowerCase().includes('user with');
+          
+          if (isDuplicateError) {
+            // User was created by another request, try to get it again
+            user = await getUserByEmail(trimmedEmail);
+            if (!user) {
+              return NextResponse.json({ 
+                error: 'Account exists', 
+                message: 'An account with this email already exists. Please log in with your password.' 
+              }, { status: 409 });
+            }
+            // Verify password for the existing user
+            const valid = await verifyUserPasswordByEmail(trimmedEmail, password);
+            if (!valid) {
+              return NextResponse.json({ error: 'Invalid credentials', message: 'Email or password is incorrect' }, { status: 401 });
+            }
+          } else {
+            // Other database or system errors
+            const errorMessage = err?.message || 'Unknown error';
+            console.error('Unexpected error creating user:', errorMessage);
+            return NextResponse.json({ 
+              error: 'Sign up failed', 
+              message: 'Could not create account. Please try again or contact support if the problem persists.' 
+            }, { status: 500 });
+          }
         }
       } else {
+        // User exists, verify password
         const valid = await verifyUserPasswordByEmail(trimmedEmail, password);
         if (!valid) {
           return NextResponse.json({ error: 'Invalid credentials', message: 'Email or password is incorrect' }, { status: 401 });
         }
+      }
+      if (!user) {
+        return NextResponse.json({ error: 'User not found', message: 'Could not retrieve user information.' }, { status: 500 });
       }
       if (!isValidRole(user.role)) {
         return NextResponse.json({ error: 'Invalid user role', message: 'User has an invalid role. Contact administrator.' }, { status: 403 });
@@ -100,15 +132,21 @@ export async function POST(request: NextRequest) {
       const permissions = getRolePermissions(user.role);
       const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
       const userAgent = request.headers.get('user-agent') || 'unknown';
-      await addLoginHistory({
-        userId: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        loginAt: new Date(),
-        ipAddress: ipAddress.split(',')[0].trim(),
-        userAgent: userAgent.substring(0, 500),
-      });
+      // Add login history, but don't fail login if it fails
+      try {
+        await addLoginHistory({
+          userId: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          loginAt: new Date(),
+          ipAddress: ipAddress.split(',')[0].trim(),
+          userAgent: userAgent.substring(0, 500),
+        });
+      } catch (historyError) {
+        // Log but don't fail the login
+        console.error('Failed to add login history (non-blocking):', historyError);
+      }
       const response = NextResponse.json(
         {
           success: true,
@@ -179,15 +217,21 @@ export async function POST(request: NextRequest) {
     const permissions = getRolePermissions(user.role);
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
     const userAgent = request.headers.get('user-agent') || 'unknown';
-    await addLoginHistory({
-      userId: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      loginAt: new Date(),
-      ipAddress: ipAddress.split(',')[0].trim(),
-      userAgent: userAgent.substring(0, 500),
-    });
+    // Add login history, but don't fail login if it fails
+    try {
+      await addLoginHistory({
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        loginAt: new Date(),
+        ipAddress: ipAddress.split(',')[0].trim(),
+        userAgent: userAgent.substring(0, 500),
+      });
+    } catch (historyError) {
+      // Log but don't fail the login
+      console.error('Failed to add login history (non-blocking):', historyError);
+    }
     const response = NextResponse.json(
       {
         success: true,

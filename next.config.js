@@ -30,6 +30,9 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['jsonwebtoken', 'bcryptjs'],
   },
+  // Note: For App Router, body size limits are handled in the route handlers.
+  // The proxy route (/api/cloudinary-upload) streams files to Cloudinary,
+  // so it can handle large files efficiently without hitting body size limits.
 }
 
 module.exports = nextConfig
