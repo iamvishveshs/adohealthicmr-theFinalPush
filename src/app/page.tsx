@@ -2445,6 +2445,11 @@ export default function Home() {
                           {moduleView[module.id] === "videos" && (() => {
                             const moduleVideos = videos[module.id] || { english: [], punjabi: [], hindi: [], activity: [] };
                             const currentVideoType = selectedVideoType[module.id];
+                            const progressKey = currentVideoType ? `${module.id}-${currentVideoType}` : '';
+                            const currentProgress = progressKey ? uploadProgress[progressKey] : undefined;
+                            const hasPendingVideo = currentVideoType
+                              ? (pendingVideos[module.id]?.[currentVideoType]?.length ?? 0) > 0
+                              : false;
 
                             return (
                               <div className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3">
@@ -2452,16 +2457,43 @@ export default function Home() {
                                   <h3 className="text-sm font-bold text-gray-900">Videos</h3>
                                   {currentVideoType && (
                                     <button
+                                      type="button"
                                       onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: null }))}
                                       className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2"
                                     >
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                                       </svg>
-                                      Back to Categories
+                                      Back
                                     </button>
                                   )}
                                 </div>
+
+                                {/* Upload Progress Bar - Shows during upload, hides when complete or pending video exists */}
+                                {currentProgress && currentProgress.stage !== 'complete' && !hasPendingVideo && (
+                                  <div className="mt-4">
+                                    <UploadProgressBar
+                                      progress={currentProgress.progress}
+                                      message={currentProgress.message}
+                                      stage={currentProgress.stage}
+                                      originalSize={currentProgress.originalSize}
+                                      compressedSize={currentProgress.compressedSize}
+                                      uploadedBytes={currentProgress.uploadedBytes}
+                                      totalBytes={currentProgress.totalBytes}
+                                    />
+                                  </div>
+                                )}
+                                {/* Show completion message briefly when upload completes */}
+                                {currentProgress && currentProgress.stage === 'complete' && !hasPendingVideo && (
+                                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                    <p className="text-sm text-green-800 font-medium">
+                                      ✅ {currentProgress.message}
+                                    </p>
+                                    <p className="text-xs text-green-600 mt-1">
+                                      Processing video metadata...
+                                    </p>
+                                  </div>
+                                )}
 
                                 {/* Language Selection Grid */}
                                 {!currentVideoType && (
@@ -2741,11 +2773,9 @@ export default function Home() {
                                 <div className="flex gap-4">
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const form = document.querySelector('form');
-                                      if (form) {
-                                        form.reset();
-                                      }
+                                    onClick={(e) => {
+                                      const form = e.currentTarget.closest('form');
+                                      if (form) form.reset();
                                       // Clear saved answers for this module (local state only)
                                       const updatedAnswers = { ...savedAnswers };
                                       delete updatedAnswers[module.id];

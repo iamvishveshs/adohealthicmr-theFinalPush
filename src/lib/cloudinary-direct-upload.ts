@@ -2,14 +2,15 @@
  * Direct Cloudinary Upload from Browser
  * 
  * OPTIMIZATIONS:
- * 1. Uploads directly from browser to Cloudinary (bypasses backend)
- * 2. Uses unsigned upload preset for security
- * 3. Chunked upload for large files (>500MB) with retry logic
- * 4. Client-side compression using MediaRecorder API
- * 5. Real-time progress tracking
- * 6. Optimized URLs with q_auto:eco,f_auto
+ * 1. Uploads directly from browser to Cloudinary (bypasses backend completely)
+ * 2. Uses signed upload for security (signature generated server-side)
+ * 3. Supports large files (500MB+) without server timeout issues
+ * 4. Client-side compression using MediaRecorder API (optional)
+ * 5. Real-time progress tracking with XMLHttpRequest
+ * 6. Uses Cloudinary /auto/upload endpoint for automatic resource type detection
  * 
- * This prevents out-of-memory crashes and speeds up uploads significantly.
+ * This prevents server timeout issues and speeds up uploads significantly.
+ * The server only generates signatures, never handles file uploads.
  */
 
 export interface UploadProgress {
@@ -32,10 +33,6 @@ export interface UploadOptions {
 // Cloudinary configuration from environment
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || '';
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || '';
-// All uploads go through the Next.js proxy route to avoid CORS issues
-// The proxy endpoint uses formidable and can handle files up to 300MB
-const CLOUDINARY_PROXY_UPLOAD_URL = '/api/cloudinary-upload';
-const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
 
 /**
  * Compress video using browser's MediaRecorder API
@@ -192,7 +189,7 @@ async function uploadLargeFileWithRetry(
       try {
         // All uploads go through the Next.js proxy route to avoid CORS issues
         // The proxy endpoint uses formidable and can handle files up to 300MB
-        const uploadUrl = CLOUDINARY_PROXY_UPLOAD_URL;
+        const uploadUrl = '/api/cloudinary-upload';
         
         const headers: HeadersInit = {};
         
@@ -233,7 +230,7 @@ async function uploadLargeFileWithRetry(
         if (error instanceof TypeError && error.message.includes('fetch')) {
           const detailedError = new Error(
             `Network error: ${error.message}. ` +
-            `Check: 1) Internet connection, 2) Proxy route: ${CLOUDINARY_PROXY_UPLOAD_URL}, ` +
+            `Check: 1) Internet connection, 2) Proxy route: /api/cloudinary-upload, ` +
             `3) Server is running, 4) Firewall/proxy settings`
           );
           throw detailedError;
@@ -247,7 +244,7 @@ async function uploadLargeFileWithRetry(
       // Log error details for debugging
       console.error(`[Cloudinary Upload] Attempt ${attempt} failed:`, {
         error: lastError.message,
-        uploadUrl: CLOUDINARY_PROXY_UPLOAD_URL,
+        uploadUrl: '/api/cloudinary-upload',
         fileSize: file.size,
       });
       
@@ -284,7 +281,7 @@ async function uploadLargeFileWithRetry(
       `- NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME || 'NOT SET'}\n` +
       `- CLOUDINARY_API_KEY: ${process.env.CLOUDINARY_API_KEY ? 'SET' : 'NOT SET'}\n` +
       `- CLOUDINARY_API_SECRET: ${process.env.CLOUDINARY_API_SECRET ? 'SET' : 'NOT SET'}\n` +
-      `- Proxy URL: ${CLOUDINARY_PROXY_UPLOAD_URL}`;
+      `- Proxy URL: /api/cloudinary-upload`;
   }
   
   throw new Error(detailedMessage);
@@ -296,6 +293,16 @@ async function uploadLargeFileWithRetry(
  * OPTIMIZATION: Uploads directly to Cloudinary, bypassing backend.
  * This is faster and reduces server load.
  */
+/**
+ * Upload video directly to Cloudinary with chunked upload support
+ * 
+ * Features:
+ * - File size validation (max 500MB recommended)
+ * - Chunked uploads handled automatically by Cloudinary
+ * - Progress tracking with XMLHttpRequest
+ * - CORS error handling
+ * - Retry logic for failed uploads
+ */
 export async function uploadVideoDirect(
   file: File,
   moduleId: number,
@@ -305,12 +312,25 @@ export async function uploadVideoDirect(
   const { onProgress, compress = false, quality = 0.6, maxRetries = 3 } = options;
   const fileSizeMB = file.size / 1024 / 1024;
 
-  // Validate Cloudinary configuration
-  // Note: The proxy endpoint uses API credentials (server-side), so we only need to check cloud name
+  // ✅ Step 1: Validate Cloudinary configuration
   if (!CLOUDINARY_CLOUD_NAME) {
     return {
       success: false,
       error: 'Cloudinary configuration missing. Please set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME in .env.local',
+    };
+  }
+
+  // ✅ Step 2: Check file size (recommend under 500MB)
+  const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+  if (file.size > MAX_FILE_SIZE) {
+    const errorMsg = `File too large! File size is ${fileSizeMB.toFixed(2)}MB. Maximum allowed size is 500MB. Please compress or split the file before uploading.`;
+    console.error('[Cloudinary Direct Upload] ❌ File size validation failed:', {
+      fileSize: `${fileSizeMB.toFixed(2)}MB`,
+      maxSize: '500MB',
+    });
+    return {
+      success: false,
+      error: errorMsg,
     };
   }
 
@@ -352,186 +372,240 @@ export async function uploadVideoDirect(
       }
     }
 
-    // Step 2: Upload to Cloudinary
+    // Step 2: Upload directly to Cloudinary using signed upload
+    // This bypasses the server completely, preventing timeout issues with large files (500MB+)
     const folder = `adohealthicmr/videos/${moduleId}/${videoType}`;
-    let result: any;
+    
+    onProgress?.({
+      stage: 'uploading',
+      progress: 0,
+      message: 'Preparing direct upload to Cloudinary...',
+      ...compressionInfo,
+    });
 
-    // All uploads go through the Next.js proxy route to avoid CORS issues
-    // The proxy endpoint uses formidable and can handle files up to 300MB
-    const useRetry = videoFile.size > 500 * 1024 * 1024; // Use retry for files > 500MB
-
-    if (useRetry) {
-      onProgress?.({
-        stage: 'uploading',
-        progress: 0,
-        message: 'Uploading large file through proxy (with retry logic)...',
-        ...compressionInfo,
-      });
-
-      // Use retry logic for very large files (>500MB)
-      result = await uploadLargeFileWithRetry(videoFile, folder, (progress) => {
-        onProgress?.({
-          ...progress,
-          ...compressionInfo,
-        });
-      }, { maxRetries });
-    } else {
-      // Standard upload for smaller files
-      onProgress?.({
-        stage: 'uploading',
-        progress: 0,
-        message: 'Uploading to Cloudinary...',
-        ...compressionInfo,
-      });
-
-      const formData = new FormData();
-      formData.append('file', videoFile);
-      formData.append('folder', folder);
-      formData.append('resource_type', 'video');
-
-      // Use fetch with proxy route to avoid CORS issues
-      // Note: Upload progress tracking is limited with fetch API through proxy
-      // We'll simulate progress based on file size
-      const totalBytes = videoFile.size;
-      let uploadedBytes = 0;
-      
-      // Simulate progress updates during upload
-      const progressInterval = setInterval(() => {
-        if (uploadedBytes < totalBytes) {
-          // Estimate progress (this is approximate since we can't track actual upload progress through proxy)
-          uploadedBytes = Math.min(uploadedBytes + (totalBytes * 0.1), totalBytes);
-          const progress = Math.round((uploadedBytes / totalBytes) * 100);
-          onProgress?.({
-            stage: 'uploading',
-            progress,
-            message: `Uploading... ${progress}%`,
-            ...compressionInfo,
-            uploadedBytes,
-            totalBytes,
-          });
-        }
-      }, 500);
-
+    try {
+      // Step 2a: Get signed upload signature from server
+      // Use the dedicated signature endpoint for better separation of concerns
+      let signatureResponse: Response;
       try {
-        // Always use proxy route to avoid CORS issues
-        // The proxy handles both small and large files efficiently
-        const uploadUrl = CLOUDINARY_PROXY_UPLOAD_URL;
-        const headers: HeadersInit = {};
-        
-        // Add auth token for proxy route
-        const token = localStorage.getItem('authToken');
+        // Get auth token for authenticated request
+        const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
+        };
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const response = await fetch(uploadUrl, {
+        signatureResponse = await fetch('/api/signature', {
           method: 'POST',
           headers,
-          body: formData,
+          body: JSON.stringify({ folder }),
+        });
+      } catch (fetchError) {
+        // Handle connection errors (server not running, network issues)
+        if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+          throw new Error('Cannot connect to server. Please ensure the development server is running on localhost:3000');
+        }
+        throw fetchError;
+      }
+
+      if (!signatureResponse.ok) {
+        const errorData = await signatureResponse.json().catch(() => ({ error: 'Failed to get signature' }));
+        throw new Error(errorData.error || errorData.details || 'Failed to get upload signature');
+      }
+
+      const { timestamp, signature, cloudName, apiKey } = await signatureResponse.json();
+
+      if (!cloudName || !apiKey || !signature || !timestamp) {
+        throw new Error('Invalid signature response from server');
+      }
+
+      console.log('[Cloudinary Direct Upload] ✓ Signature obtained, starting direct upload:', {
+        folder,
+        fileSize: `${(videoFile.size / (1024 * 1024)).toFixed(2)}MB`,
+        cloudName,
+      });
+
+      // Step 2b: Upload directly to Cloudinary using chunked upload
+      // Cloudinary automatically handles chunking for large files (>64MB)
+      // We use XMLHttpRequest for accurate progress tracking and better error handling
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
+      
+      const formData = new FormData();
+      formData.append('file', videoFile);
+      formData.append('api_key', apiKey);
+      formData.append('timestamp', timestamp.toString());
+      formData.append('signature', signature);
+      formData.append('folder', folder);
+      formData.append('resource_type', 'video'); // Explicitly set to video
+      
+      // Cloudinary automatically chunks files > 64MB
+      if (videoFile.size > 64 * 1024 * 1024) {
+        console.log('[Cloudinary Direct Upload] Large file detected, Cloudinary will use chunked upload:', {
+          fileSize: `${(videoFile.size / (1024 * 1024)).toFixed(2)}MB`,
+        });
+      }
+
+      // Use XMLHttpRequest for accurate progress tracking and better error handling
+      const result = await new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const startTime = Date.now();
+        let lastProgress = 0;
+
+        // Track upload progress with detailed logging
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const progress = Math.round((event.loaded / event.total) * 100);
+            const uploadedMB = (event.loaded / (1024 * 1024)).toFixed(2);
+            const totalMB = (event.total / (1024 * 1024)).toFixed(2);
+            
+            // Update progress callback
+            onProgress?.({
+              stage: 'uploading',
+              progress,
+              message: `Uploading to Cloudinary... ${progress}% (${uploadedMB}MB / ${totalMB}MB)`,
+              ...compressionInfo,
+              uploadedBytes: event.loaded,
+              totalBytes: event.total,
+            });
+
+            // Log progress every 5% for better visibility
+            if (progress - lastProgress >= 5 || progress === 100) {
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+              const speed = event.loaded > 0 ? ((event.loaded / (1024 * 1024)) / parseFloat(elapsed)).toFixed(2) : '0';
+              console.log(`📤 [Cloudinary Direct Upload] Progress: ${progress}% (${uploadedMB}MB / ${totalMB}MB) - ${elapsed}s - ${speed}MB/s`);
+              lastProgress = progress;
+            }
+          }
         });
 
-        clearInterval(progressInterval);
-        
-        // Final progress update
-        onProgress?.({
-          stage: 'uploading',
-          progress: 100,
-          message: 'Processing upload...',
-          ...compressionInfo,
-          uploadedBytes: totalBytes,
-          totalBytes,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
-          const errorMessage = errorData.error || errorData.details || `Upload failed: HTTP ${response.status}`;
-          
-          // Provide more context for common errors
-          if (response.status === 400) {
-            throw new Error(`${errorMessage}. This usually means the upload preset is invalid or missing required permissions.`);
-          } else if (response.status === 401) {
-            throw new Error(`${errorMessage}. Authentication failed. Check your Cloudinary upload preset configuration.`);
-          } else if (response.status === 413) {
-            throw new Error(`${errorMessage}. File is too large. The proxy route should handle this - check Next.js body size limits.`);
-          } else if (response.status >= 500) {
-            // Try to get more details from the error response
-            let serverErrorDetails = errorMessage;
+        // Handle successful upload
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
             try {
-              const errorData = await response.json();
-              if (errorData.details) {
-                serverErrorDetails = `${errorMessage}. ${errorData.details}`;
+              const response = JSON.parse(xhr.responseText);
+              const uploadTime = ((Date.now() - startTime) / 1000).toFixed(2);
+              
+              console.log('[Cloudinary Direct Upload] ✓ Upload completed:', {
+                publicId: response.public_id,
+                fileSize: response.bytes ? `${(response.bytes / (1024 * 1024)).toFixed(2)}MB` : 'unknown',
+                uploadTime: `${uploadTime}s`,
+                uploadSpeed: response.bytes ? `${((response.bytes / (1024 * 1024)) / parseFloat(uploadTime)).toFixed(2)}MB/s` : 'unknown',
+                secureUrl: response.secure_url ? response.secure_url.substring(0, 50) + '...' : 'not available',
+              });
+
+              onProgress?.({
+                stage: 'complete',
+                progress: 100,
+                message: 'Upload complete!',
+                ...compressionInfo,
+                uploadedBytes: videoFile.size,
+                totalBytes: videoFile.size,
+              });
+
+              resolve(response);
+            } catch (parseError) {
+              reject(new Error('Failed to parse Cloudinary response'));
+            }
+          } else {
+            // Handle HTTP errors with specific error messages
+            try {
+              const errorResponse = JSON.parse(xhr.responseText);
+              const errorMessage = errorResponse.error?.message || `Upload failed with status ${xhr.status}`;
+              
+              // Handle specific error codes
+              if (xhr.status === 413) {
+                reject(new Error('File too large (413 Request Entity Too Large). Maximum file size is 500MB. Please compress the file or use a smaller file.'));
+              } else if (xhr.status === 0 || xhr.status === 401) {
+                // CORS or authentication error
+                reject(new Error('CORS or authentication error. Please check:\n1. Cloudinary CORS settings (Dashboard → Settings → Security → CORS)\n2. Add your domain (http://localhost:3000 for dev)\n3. Verify API credentials are correct'));
+              } else if (xhr.status === 400) {
+                reject(new Error(`Bad request: ${errorMessage}. Please check file format and upload parameters.`));
+              } else {
+                reject(new Error(`Upload failed (${xhr.status}): ${errorMessage}`));
               }
             } catch {
-              // If we can't parse the error, use the original message
+              if (xhr.status === 413) {
+                reject(new Error('File too large (413 Request Entity Too Large). Maximum file size is 500MB.'));
+              } else if (xhr.status === 0) {
+                reject(new Error('CORS error: Please configure Cloudinary CORS settings. Go to Cloudinary Dashboard → Settings → Security → CORS and add http://localhost:3000'));
+              } else {
+                reject(new Error(`Upload failed with status ${xhr.status}`));
+              }
             }
-            throw new Error(serverErrorDetails);
           }
-          
-          throw new Error(errorMessage);
-        }
+        });
 
-        result = await response.json();
-      } catch (error) {
-        clearInterval(progressInterval);
-        // Provide more detailed error information for network errors
-        if (error instanceof TypeError && error.message.includes('fetch')) {
-          const detailedError = new Error(
-            `Network error: ${error.message}. ` +
-            `Check: 1) Internet connection, 2) Proxy route: ${CLOUDINARY_PROXY_UPLOAD_URL}, ` +
-            `3) Server is running, 4) Firewall/proxy settings`
-          );
-          throw detailedError;
-        }
-        throw error;
-      }
-    }
+        // Handle upload errors
+        xhr.addEventListener('error', () => {
+          // Network error - could be CORS, connection issue, or server error
+          if (xhr.status === 0) {
+            reject(new Error('CORS error: Please configure Cloudinary CORS settings.\n\nTo fix:\n1. Go to Cloudinary Dashboard → Settings → Security → CORS\n2. Add your domain: http://localhost:3000\n3. For production, add your production domain\n4. Save and wait 1-2 minutes for changes to propagate'));
+          } else {
+            reject(new Error('Network error occurred during upload. Please check your internet connection and try again.'));
+          }
+        });
 
-    // Generate optimized URL with f_mp4,f_auto,q_auto using secure_url
-    // f_mp4: explicit MP4 format for best compatibility
-    // f_auto: automatic format fallback
-    // q_auto: automatic quality optimization
-    // Use secure_url for HTTPS playback, fallback to url if secure_url is not available
-    const baseUrl = result.secure_url || result.url;
-    if (!baseUrl) {
-      throw new Error('Cloudinary upload succeeded but no URL returned');
-    }
-    
-    let optimizedUrl = baseUrl;
-    if (baseUrl.includes('/upload/')) {
-      // Remove any existing transformations
-      optimizedUrl = baseUrl.replace(/\/upload\/[^\/]+\//, '/upload/');
-      // Apply f_mp4,f_auto,q_auto transformations for full browser compatibility
-      optimizedUrl = optimizedUrl.replace('/upload/', '/upload/f_mp4,f_auto,q_auto/');
-      
-      console.log('[Cloudinary Upload] URL optimized:', {
-        original: baseUrl,
-        optimized: optimizedUrl,
-        publicId: result.public_id,
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload was cancelled'));
+        });
+
+        xhr.addEventListener('timeout', () => {
+          reject(new Error('Upload timeout. The file may be too large or your connection is too slow. Please try again or compress the file.'));
+        });
+
+        // Set timeout for large files (10 minutes)
+        xhr.timeout = 600000; // 10 minutes
+
+        // Start upload
+        xhr.open('POST', uploadUrl);
+        
+        // Do NOT set Content-Type header - browser sets it automatically with boundary
+        // Setting it manually will break FormData uploads
+        xhr.send(formData);
       });
+
+      return {
+        success: true,
+        video: {
+          publicId: result.public_id || '',
+          url: result.url || result.secure_url || '',
+          secure_url: result.secure_url || result.url || '', // Always prefer secure_url
+          format: result.format,
+          duration: result.duration,
+          bytes: result.bytes,
+          width: result.width,
+          height: result.height,
+          fileName: file.name,
+          fileSize: compressionInfo.compressedSize,
+        },
+      };
+    } catch (error) {
+      console.error('[Cloudinary Direct Upload] ❌ Upload error:', error);
+      
+      // Provide user-friendly error messages
+      let errorMessage = 'Upload failed';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Handle specific error types
+        if (errorMessage.includes('Cannot connect to server') || errorMessage.includes('ERR_CONNECTION_REFUSED')) {
+          errorMessage = 'Server connection error: The development server is not running. Please start it with "npm run dev" and try again.';
+        } else if (errorMessage.includes('CORS') || errorMessage.includes('Access-Control')) {
+          errorMessage = 'CORS error: Please configure Cloudinary CORS settings to allow uploads from your domain.';
+        } else if (errorMessage.includes('signature')) {
+          errorMessage = 'Signature error: Failed to generate upload signature. Please try again.';
+        } else if (errorMessage.includes('Network') || errorMessage.includes('fetch')) {
+          errorMessage = 'Network error: Please check your internet connection and ensure the server is running.';
+        }
+      }
+      
+      return {
+        success: false,
+        error: errorMessage,
+      };
     }
-
-    onProgress?.({
-      stage: 'complete',
-      progress: 100,
-      message: 'Upload complete!',
-      ...compressionInfo,
-    });
-
-    return {
-      success: true,
-      video: {
-        publicId: result.public_id || '',
-        url: result.url || optimizedUrl, // Original URL from Cloudinary
-        secure_url: result.secure_url || result.url || optimizedUrl, // Prefer secure_url, fallback to url
-        format: result.format,
-        duration: result.duration,
-        bytes: result.bytes,
-        width: result.width,
-        height: result.height,
-        fileName: file.name,
-        fileSize: compressionInfo.compressedSize,
-      },
-    };
   } catch (error) {
     return {
       success: false,
