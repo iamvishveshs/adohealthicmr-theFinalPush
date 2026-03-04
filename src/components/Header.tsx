@@ -50,9 +50,9 @@ const Header = memo(({
                 priority
               />
             </div>
-            <div className="flex flex-col">
+            <div className="flex flex-row gap-2">
               <h1 className="text-sm sm:text-lg font-black text-white uppercase leading-none tracking-tight">AdoHealth</h1>
-              <span className="text-[9px] sm:text-[10px] font-bold text-yellow-400 uppercase tracking-widest mt-0.5">Initiative</span>
+              <span className="text-sm sm:text-lg font-bold text-yellow-400 uppercase tracking-widest">Initiative</span>
             </div>
           </Link>
 
