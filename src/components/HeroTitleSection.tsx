@@ -24,7 +24,7 @@ export default function HeroTitleSection() {
         <div className="absolute bottom-1/4 left-10 w-80 h-80 bg-blue-400/20 rounded-full blur-[120px]"></div>
       </div>
 
-      <div className="relative z-10 max-w-6xl px-5 sm:px-6 md:pl-10 lg:pl-16 md:pr-6 py-14 md:py-18">
+      <div className="relative z-10 max-w-6xl px-5 sm:px-6 md:pl-10 lg:pl-16 md:pr-6 py-14 md:py-18 mt-[140px]">
         <div className="max-w-4xl flex flex-col items-start gap-4 md:gap-5">
 
           {/* Decorative Top Line */}
@@ -35,7 +35,7 @@ export default function HeroTitleSection() {
 
           {/* Main Badge */}
           <div className="inline-block">
-            <span className="bg-yellow-500 text-blue-900 text-[10px] sm:text-xs md:text-sm font-black px-3 py-1.5 rounded-lg shadow-xl uppercase tracking-[0.22em] border-2 border-yellow-400">
+            <span className="bg-yellow-500 text-blue-900 text-[10px] sm:text-xs md:text-sm font-black px-3 py-1.5 rounded-lg shadow-xl tracking-[0.22em] border-2 border-yellow-400">
               AdoHealth Initiative
             </span>
           </div>

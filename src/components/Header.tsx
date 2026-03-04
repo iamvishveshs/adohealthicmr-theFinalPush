@@ -40,13 +40,13 @@ const Header = memo(({
 
           {/* Logo Section */}
           <Link href="/" className="flex items-center gap-3 sm:gap-4 group shrink-0">
-            <div className="relative w-12 h-12 sm:w-14 sm:h-14 bg-white rounded-full p-1 shadow-lg shadow-black/40">
+            <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 [filter:drop-shadow(0_1px_3px_rgba(0,0,0,0.3))]">
               <Image
                 src={icmrLogo}
                 alt="ICMR Logo"
                 fill
                 sizes="56px"
-                className="object-contain"
+                className="object-contain brightness-[3] contrast-110"
                 priority
               />
             </div>
