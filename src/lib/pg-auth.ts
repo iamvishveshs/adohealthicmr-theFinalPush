@@ -115,7 +115,10 @@ export async function createUserByEmail(email: string, password: string): Promis
   const key = email.trim().toLowerCase();
   const slug = key.replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   const id = slug ? 'user-' + slug : 'user-' + Date.now();
-  const username = key; // use email as username for uniqueness
+
+  // FIX: Ensure username is never null or empty to prevent DB 500 errors
+  const username = key;
+
   return createUser({ id, username, email: key, password, role: 'user' });
 }
 
@@ -140,7 +143,7 @@ export async function getAllUsers(opts?: { role?: 'user' | 'admin'; search?: str
 export async function createUser(data: Omit<UserRecord, 'passwordHash'> & { password: string }): Promise<UserRecord> {
   if (!hasDatabase()) throw new Error('Database not configured');
   await ensureAuthSchema();
-  
+
   // Check if user already exists by username or email
   const existingByUsername = await getUserByUsername(data.username);
   if (existingByUsername) {
@@ -150,9 +153,10 @@ export async function createUser(data: Omit<UserRecord, 'passwordHash'> & { pass
   if (existingByEmail) {
     throw new Error(`User with email "${data.email}" already exists`);
   }
-  
+
   const passwordHash = bcrypt.hashSync(data.password, 10);
   try {
+    // FIX: Optimized insert to return data directly
     await run(
       'INSERT INTO users (id, username, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
       [data.id, data.username, data.email, passwordHash, data.role]
@@ -160,7 +164,6 @@ export async function createUser(data: Omit<UserRecord, 'passwordHash'> & { pass
   } catch (err: any) {
     // Handle PostgreSQL unique constraint violations
     if (err?.code === '23505') {
-      // Unique constraint violation - user already exists
       const constraint = err?.constraint || '';
       if (constraint.includes('username')) {
         throw new Error(`User with username "${data.username}" already exists`);

@@ -1,73 +1,61 @@
-  "use client";
+"use client";
 
-  import heroImage from "../assets/heroimg.webp";
+import heroImage from "../assets/heroimg.webp";
 
-  export default function HeroTitleSection() {
-    const backgroundImageUrl = typeof heroImage === 'string' ? heroImage : heroImage.src;
-    
-    return (
-      <div className="w-full min-h-[350px] px-6 md:px-8 pt-12 pb-8 relative overflow-hidden border-b-2 border-yellow-500">
-        {/* Background Image - Covering Whole Section */}
-        <div 
-          className="absolute inset-0 w-full h-full bg-cover bg-center bg-no-repeat z-0"
-          style={{
-            backgroundImage: `url(${backgroundImageUrl})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-          }}
-        ></div>
-        
-        {/* Dark overlay for better text readability */}
-        <div className="absolute inset-0 bg-slate-800/70 z-[1]"></div>
-        
-        {/* Animated Background Shapes */}
-        <div className="absolute inset-0 overflow-hidden z-[1] bgimg">
-          {/* Decorative/animated white blobs */}
-          <div className="absolute top-10 left-10 w-72 h-72 bg-white rounded-full mix-blend-overlay opacity-20 blur-3xl animate-pulse"></div>
-          <div className="absolute bottom-10 right-10 w-96 h-96 bg-white rounded-full mix-blend-overlay opacity-20 blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-white rounded-full mix-blend-overlay opacity-10 blur-3xl"></div>
-          {/* Background image overlayed for additional effect */}
-          <img 
-            src={backgroundImageUrl} 
-            alt="Background Decoration"
-            className="absolute inset-0 w-full h-full object-cover opacity-30 z-[-1] pointer-events-none"
-            draggable={false}
-            style={{ userSelect: "none" }}
-          />
-        </div>
+export default function HeroTitleSection() {
+  const backgroundImageUrl = typeof heroImage === 'string' ? heroImage : heroImage.src;
 
-        {/* Content */}
-        <div className="max-w-5xl mx-2 px-4 sm:px-6 md:px-8 text-left mt-20 sm:mt-32 md:mt-40 relative z-10">
-          {/* Semi-transparent background behind text for extra readability */}
-          <div className="absolute inset-0 bg-blue/40 rounded-lg -z-10 blur-sm"></div>
-          <div className="">
-          {/* Decorative Top Element */}
-          <div className="flex justify-start mb-4 sm:mb-6">
-            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-              <div className="h-1 w-8 sm:w-12 bg-yellow-500 rounded-full"></div>
-              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-yellow-400 rounded-full"></div>
-              <div className="h-1 w-16 sm:w-24 bg-yellow-500 rounded-full"></div>
-              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-yellow-400 rounded-full"></div>
-              <div className="h-1 w-8 sm:w-12 bg-yellow-500 rounded-full"></div>
-            </div>
+  return (
+    <div className="relative w-full min-h-[380px] md:min-h-[440px] flex items-center overflow-hidden border-b-2 border-yellow-500">
+      {/* Background Image Layer */}
+      <div
+        className="absolute inset-0 w-full h-full bg-cover bg-center bg-no-repeat z-0 scale-105 brightness-75"
+        style={{
+          backgroundImage: `url(${backgroundImageUrl})`,
+        }}
+      ></div>
+
+      {/* Gradient Overlay - Soft dark overlay for readability */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/35 to-transparent z-[1]"></div>
+
+      {/* Ambient Glows */}
+      <div className="absolute inset-0 z-[2] overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-yellow-500/20 rounded-full blur-[100px] animate-pulse"></div>
+        <div className="absolute bottom-1/4 left-10 w-80 h-80 bg-blue-400/20 rounded-full blur-[120px]"></div>
+      </div>
+
+      <div className="relative z-10 max-w-6xl px-5 sm:px-6 md:pl-10 lg:pl-16 md:pr-6 py-14 md:py-18">
+        <div className="max-w-4xl flex flex-col items-start gap-4 md:gap-5">
+
+          {/* Decorative Top Line */}
+          <div className="flex items-center gap-2">
+            <div className="h-1 w-12 bg-yellow-500 rounded-full"></div>
+            <div className="h-1 w-4 bg-yellow-400/50 rounded-full"></div>
           </div>
 
-          <h1 className="text-sm sm:text-base md:text-[18px] font-bold mb-4 sm:mb-6 leading-tight text-left">
-            <span className="text-white bg-yellow-500 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg shadow-lg border-2 border-yellow-400 inline-block mb-2 md:mb-0 text-xs sm:text-sm md:text-base">AdoHealth Initiative</span>
-            <span className="text-white block text-left md:inline-block md:ml-2 font-semibold mt-2 md:mt-0 text-xs sm:text-sm md:text-base">A School-Based Cluster Randomised Controlled Trial of an E-Wellness Initiative for Nurturing Healthy Lifestyle Choices among Adolescents in SAS Nagar, Punjab.</span>
-          </h1>
+          {/* Main Badge */}
+          <div className="inline-block">
+            <span className="bg-yellow-500 text-blue-900 text-[10px] sm:text-xs md:text-sm font-black px-3 py-1.5 rounded-lg shadow-xl uppercase tracking-[0.22em] border-2 border-yellow-400">
+              AdoHealth Initiative
+            </span>
+          </div>
 
-          {/* Modern Decorative Bottom Element */}
-          <div className="mt-6 sm:mt-8 flex justify-start items-center gap-2 sm:gap-4 flex-wrap">
-            <div className="h-1 w-12 sm:w-16 bg-yellow-500 rounded-full"></div>
-            <div className="w-2 h-2 sm:w-3 sm:h-3 bg-yellow-400 rounded-full shadow-lg"></div>
-            <div className="h-1 w-24 sm:w-32 bg-yellow-500 rounded-full"></div>
-            <div className="w-2 h-2 sm:w-3 sm:h-3 bg-yellow-400 rounded-full shadow-lg"></div>
-            <div className="h-1 w-12 sm:w-16 bg-yellow-500 rounded-full"></div>
+          {/* Title Text */}
+          <div className="relative">
+            <h1 className="text-sm sm:text-base md:text-lg lg:text-xl font-extrabold text-white leading-relaxed tracking-tight text-left max-w-3xl">
+              A School-Based Cluster Randomised Controlled Trial of an <span className="text-yellow-400">E-Wellness Initiative</span> for Nurturing Healthy Lifestyle Choices among Adolescents in SAS Nagar, Punjab.
+            </h1>
           </div>
+
+          {/* Bottom Dots */}
+          <div className="flex items-center gap-3 mt-6">
+            <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+            <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+            <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
           </div>
+
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}

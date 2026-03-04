@@ -1,16 +1,9 @@
 /**
- * In-memory data store.
- * Modules & questions loaded from data/app-data.json; others in memory.
+ * PostgreSQL-backed data store.
+ * Replaces the local JSON file system with full Neon DB integration.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { query } from '@/lib/pg-client';
-
-const DATA_FILE = path.join(process.cwd(), 'data', 'app-data.json');
-const ANSWERS_FILE = path.join(process.cwd(), 'data', 'answers.json');
-const VIDEOS_FILE = path.join(process.cwd(), 'data', 'videos.json');
-const USERS_FILE = path.join(process.cwd(), 'data', 'users.json');
+import { query, queryOne, run } from '@/lib/db';
 
 // --- Types ---
 export interface ModuleRecord {
@@ -38,6 +31,7 @@ export interface AnswerRecord {
 }
 
 export interface VideoRecord {
+  id?: number;
   moduleId: number;
   videoType: 'english' | 'punjabi' | 'hindi' | 'activity';
   videoId: number;
@@ -46,6 +40,7 @@ export interface VideoRecord {
   fileSize: number;
   fileUrl?: string;
   uploadedBy?: string;
+  createdAt?: Date;
 }
 
 export interface UserRecord {
@@ -57,6 +52,7 @@ export interface UserRecord {
 }
 
 export interface LoginHistoryRecord {
+  id?: number;
   userId: string;
   username: string;
   email: string;
@@ -66,588 +62,381 @@ export interface LoginHistoryRecord {
   userAgent: string;
 }
 
-// --- In-memory stores (used when Postgres not configured) ---
-let modules: ModuleRecord[] = [];
-let questionsByModule: Record<string, QuestionRecord[]> = {};
-const answersStore: AnswerRecord[] = [];
-const videosStore: VideoRecord[] = [];
-const usersStore = new Map<string, UserRecord>();
-const loginHistoryStore: LoginHistoryRecord[] = [];
-
-let dataLoaded = false;
-const USE_PG = !!process.env.DATABASE_URL;
-
-function loadData() {
-  if (dataLoaded || USE_PG) return;
-  try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    const data = JSON.parse(raw);
-    modules = Array.isArray(data.modules) ? data.modules : [];
-    const q = data.questions;
-    if (q && typeof q === 'object') {
-      questionsByModule = q;
-    }
-    // Attempt to load persisted videos
-    try {
-      const videosRaw = fs.readFileSync(VIDEOS_FILE, 'utf8');
-      const videosArr = JSON.parse(videosRaw);
-      if (Array.isArray(videosArr)) {
-        videosStore.length = 0;
-        for (const v of videosArr) {
-          // Skip videos with base64 data URLs - they should not be persisted
-          // Only load videos with valid Cloudinary URLs or empty preview/fileUrl
-          const hasBase64Preview = v.preview && (v.preview.startsWith('data:') || v.preview.startsWith('blob:'));
-          const hasBase64FileUrl = v.fileUrl && (v.fileUrl.startsWith('data:') || v.fileUrl.startsWith('blob:'));
-          
-          if (hasBase64Preview || hasBase64FileUrl) {
-            console.warn(`Skipping video with base64 data (moduleId: ${v.moduleId}, videoType: ${v.videoType}, videoId: ${v.videoId}). Please re-upload to Cloudinary.`);
-            continue;
-          }
-          
-          videosStore.push({
-            moduleId: v.moduleId,
-            videoType: v.videoType,
-            videoId: v.videoId,
-            preview: v.preview,
-            fileName: v.fileName,
-            fileSize: v.fileSize,
-            fileUrl: v.fileUrl,
-            uploadedBy: v.uploadedBy,
-          });
-        }
-      }
-    } catch (e) {
-      // No videos file yet or invalid - leave store as is
-    }
-
-    // Attempt to load persisted users
-    try {
-      const usersRaw = fs.readFileSync(USERS_FILE, 'utf8');
-      const usersArr = JSON.parse(usersRaw);
-      if (Array.isArray(usersArr)) {
-        usersStore.clear();
-        for (const u of usersArr) {
-          // Expect stored shape: { id, username, email, passwordHash, role }
-          if (u && u.username) {
-            usersStore.set(u.username, {
-              id: u.id,
-              username: u.username,
-              email: u.email,
-              passwordHash: u.passwordHash,
-              role: u.role,
-            });
-          }
-        }
-      }
-    } catch (e) {
-      // No users file yet or invalid - leave store as is
-    }
-    // Load persisted answers
-    try {
-      const answersRaw = fs.readFileSync(ANSWERS_FILE, 'utf8');
-      const answersArr = JSON.parse(answersRaw);
-      if (Array.isArray(answersArr)) {
-        answersStore.length = 0;
-        for (const a of answersArr) {
-          answersStore.push({
-            userId: a.userId,
-            moduleId: a.moduleId,
-            questionId: a.questionId,
-            answer: a.answer,
-            isCorrect: a.isCorrect,
-            submittedAt: new Date(a.submittedAt),
-          });
-        }
-      }
-    } catch (e) {
-      // No answers file yet or invalid - leave store as is
-    }
-  } catch (e) {
-    console.warn('Store: could not load app-data.json', e);
-    modules = [];
-    questionsByModule = {};
-    // In case of missing app-data.json we'll still ensure a default admin later
-  }
-  // Ensure default admin exists (password: Welcome@25) - bcrypt hash
-  try {
-    const bcrypt = require('bcryptjs');
-    const defaultHash = bcrypt.hashSync('Welcome@25', 10);
-    if (!usersStore.has('adohealthicmr')) {
-      usersStore.set('adohealthicmr', {
-        id: 'admin-1',
-        username: 'adohealthicmr',
-        email: 'admin@adohealthicmr.com',
-        passwordHash: defaultHash,
-        role: 'admin',
-      });
-    }
-  } catch (e) {
-    // ignore bcrypt errors
-  }
-
-  dataLoaded = true;
-}
-
 // --- Modules ---
 export async function getModules(): Promise<ModuleRecord[]> {
-  if (USE_PG) {
-    const res = await query('SELECT id, title, description, color FROM modules ORDER BY id');
-    return res.rows.map((r: any) => ({ id: r.id, title: r.title, description: r.description, color: r.color }));
-  }
-  loadData();
-  return [...modules].sort((a, b) => a.id - b.id);
+  const res = await query('SELECT id, title, description, color FROM modules ORDER BY id');
+  return res.map((r: any) => ({
+    id: r.id,
+    title: r.title,
+    description: r.description,
+    color: r.color
+  }));
 }
 
 export async function getModuleById(id: number): Promise<ModuleRecord | undefined> {
-  if (USE_PG) {
-    const res = await query('SELECT id, title, description, color FROM modules WHERE id = $1', [id]);
-    const row = res.rows[0];
-    return row ? { id: row.id, title: row.title, description: row.description, color: row.color } : undefined;
-  }
-  loadData();
-  return modules.find((m) => m.id === id);
+  const row = await queryOne('SELECT id, title, description, color FROM modules WHERE id = $1', [id]);
+  const r = row as any;
+  return r ? { id: r.id, title: r.title, description: r.description, color: r.color } : undefined;
 }
 
 export async function createModule(data: ModuleRecord): Promise<ModuleRecord> {
-  if (USE_PG) {
-    await query(
-      `INSERT INTO modules (id, title, description, color) VALUES ($1,$2,$3,$4)`,
-      [data.id, data.title, data.description, data.color]
-    );
-    return data;
-  }
-  loadData();
-  if (modules.some((m) => m.id === data.id)) throw new Error(`Module with ID ${data.id} already exists`);
-  modules.push({ ...data });
-  persistData();
+  await run(
+    `INSERT INTO modules (id, title, description, color) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description, color = EXCLUDED.color`,
+    [data.id, data.title, data.description, data.color]
+  );
   return data;
 }
 
 export async function updateModule(id: number, updates: Partial<Omit<ModuleRecord, 'id'>>): Promise<ModuleRecord | null> {
-  if (USE_PG) {
-    const res = await query(
-      `UPDATE modules SET title = COALESCE($1,title), description = COALESCE($2,description), color = COALESCE($3,color) WHERE id = $4 RETURNING id, title, description, color`,
-      [updates.title ?? null, updates.description ?? null, updates.color ?? null, id]
-    );
-    const row = res.rows[0];
-    return row ? { id: row.id, title: row.title, description: row.description, color: row.color } : null;
-  }
-  loadData();
-  const i = modules.findIndex((m) => m.id === id);
-  if (i === -1) return null;
-  modules[i] = { ...modules[i], ...updates };
-  persistData();
-  return modules[i];
+  await run(
+    `UPDATE modules SET title = COALESCE($1,title), description = COALESCE($2,description), color = COALESCE($3,color) WHERE id = $4`,
+    [updates.title ?? null, updates.description ?? null, updates.color ?? null, id]
+  );
+  const updated = await getModuleById(id);
+  return updated ?? null;
 }
 
 export async function deleteModule(id: number): Promise<boolean> {
-  if (USE_PG) {
-    const res = await query('DELETE FROM modules WHERE id = $1', [id]);
-    return res.rowCount > 0;
-  }
-  loadData();
-  const i = modules.findIndex((m) => m.id === id);
-  if (i === -1) return false;
-  modules.splice(i, 1);
-  persistData();
+  await run('DELETE FROM modules WHERE id = $1', [id]);
   return true;
 }
 
 // --- Questions ---
+function mapQuestionRow(row: any): QuestionRecord {
+  let parsedOptions = row.options;
+  if (typeof row.options === 'string') {
+    try {
+      parsedOptions = JSON.parse(row.options);
+    } catch (e) {
+      parsedOptions = [];
+    }
+  }
+  return {
+    id: row.id,
+    moduleId: row.module_id,
+    question: row.question,
+    options: Array.isArray(parsedOptions) ? parsedOptions : [],
+    correctAnswer: row.correct_answer,
+  };
+}
+
 export async function getQuestions(moduleId?: number): Promise<QuestionRecord[]> {
-  if (USE_PG) {
-    const params: any[] = [];
-    let sql = 'SELECT id, module_id, question, options, correct_answer FROM questions';
-    if (moduleId != null) {
-      sql += ' WHERE module_id = $1';
-      params.push(moduleId);
-    }
-    sql += ' ORDER BY module_id, id';
-    const res = await query(sql, params);
-    return res.rows.map((r: any) => ({ id: r.id, moduleId: r.module_id, question: r.question, options: r.options || [], correctAnswer: r.correct_answer }));
+  let sql = 'SELECT * FROM questions';
+  const params: any[] = [];
+  if (moduleId !== undefined) {
+    sql += ' WHERE module_id = $1';
+    params.push(moduleId);
   }
-  loadData();
-  if (moduleId != null) {
-    const list = questionsByModule[String(moduleId)] || [];
-    return list.map((q) => ({ ...q, moduleId }));
-  }
-  const all: QuestionRecord[] = [];
-  for (const [modId, list] of Object.entries(questionsByModule)) {
-    for (const q of list) {
-      all.push({ ...q, moduleId: parseInt(modId, 10) });
-    }
-  }
-  return all.sort((a, b) => a.moduleId - b.moduleId || a.id - b.id);
+  sql += ' ORDER BY module_id, id ASC';
+  const rows = await query(sql, params);
+  return rows.map(mapQuestionRow);
 }
 
 export async function getQuestionById(id: number, moduleId: number): Promise<QuestionRecord | undefined> {
-  if (USE_PG) {
-    const res = await query('SELECT id, module_id, question, options, correct_answer FROM questions WHERE id = $1 AND module_id = $2', [id, moduleId]);
-    const row = res.rows[0];
-    if (!row) return undefined;
-    return { id: row.id, moduleId: row.module_id, question: row.question, options: row.options || [], correctAnswer: row.correct_answer };
-  }
-  loadData();
-  const list = questionsByModule[String(moduleId)] || [];
-  const q = list.find((x) => x.id === id);
-  return q ? { ...q, moduleId } : undefined;
+  const row = await queryOne('SELECT * FROM questions WHERE id = $1 AND module_id = $2', [id, moduleId]);
+  return row ? mapQuestionRow(row) : undefined;
 }
 
 export async function createQuestion(data: QuestionRecord): Promise<QuestionRecord> {
-  if (USE_PG) {
-    await query(
-      'INSERT INTO questions (id, module_id, question, options, correct_answer) VALUES ($1,$2,$3,$4,$5)',
-      [data.id, data.moduleId, data.question || '', JSON.stringify(data.options || []), data.correctAnswer ?? null]
-    );
-    return data;
-  }
-  loadData();
-  const key = String(data.moduleId);
-  if (!questionsByModule[key]) questionsByModule[key] = [];
-  if (questionsByModule[key].some((q) => q.id === data.id)) throw new Error(`Question with ID ${data.id} already exists`);
-  questionsByModule[key].push({ ...data });
-  persistData();
-  return data;
+  const optionsJson = JSON.stringify(data.options || []);
+  await run(
+    'INSERT INTO questions (id, module_id, question, options, correct_answer) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id, module_id) DO UPDATE SET question = EXCLUDED.question, options = EXCLUDED.options, correct_answer = EXCLUDED.correct_answer',
+    [data.id, data.moduleId, data.question || '', optionsJson, data.correctAnswer ?? null]
+  );
+  const created = await getQuestionById(data.id, data.moduleId);
+  if (!created) throw new Error('Failed to retrieve created question');
+  return created;
 }
 
 export async function updateQuestion(id: number, moduleId: number, updates: Partial<Omit<QuestionRecord, 'id' | 'moduleId'>>): Promise<QuestionRecord | null> {
-  if (USE_PG) {
-    const res = await query(
-      'UPDATE questions SET question = COALESCE($1,question), options = COALESCE($2,options), correct_answer = COALESCE($3,correct_answer) WHERE id = $4 AND module_id = $5 RETURNING id, module_id, question, options, correct_answer',
-      [updates.question ?? null, updates.options ? JSON.stringify(updates.options) : null, updates.correctAnswer !== undefined ? updates.correctAnswer : null, id, moduleId]
-    );
-    const row = res.rows[0];
-    if (!row) return null;
-    return { id: row.id, moduleId: row.module_id, question: row.question, options: row.options || [], correctAnswer: row.correct_answer };
-  }
-  loadData();
-  const list = questionsByModule[String(moduleId)] || [];
-  const i = list.findIndex((q) => q.id === id);
-  if (i === -1) return null;
-  list[i] = { ...list[i], ...updates };
-  persistData();
-  return list[i];
+  const existing = await getQuestionById(id, moduleId);
+  if (!existing) return null;
+
+  const question = updates.question !== undefined ? updates.question : existing.question;
+  const options = updates.options !== undefined ? JSON.stringify(updates.options) : JSON.stringify(existing.options);
+  const correctAnswer = updates.correctAnswer !== undefined ? updates.correctAnswer : existing.correctAnswer;
+
+  await run(
+    'UPDATE questions SET question = $1, options = $2, correct_answer = $3 WHERE id = $4 AND module_id = $5',
+    [question, options, correctAnswer, id, moduleId]
+  );
+  const updated = await getQuestionById(id, moduleId);
+  return updated ?? null;
 }
 
 export async function deleteQuestion(id: number, moduleId: number): Promise<boolean> {
-  if (USE_PG) {
-    const res = await query('DELETE FROM questions WHERE id = $1 AND module_id = $2', [id, moduleId]);
-    return res.rowCount > 0;
-  }
-  loadData();
-  const list = questionsByModule[String(moduleId)] || [];
-  const i = list.findIndex((q) => q.id === id);
-  if (i === -1) return false;
-  list.splice(i, 1);
-  persistData();
+  await run('DELETE FROM questions WHERE id = $1 AND module_id = $2', [id, moduleId]);
   return true;
 }
 
-// --- Answers ---
-export function getAnswers(userId: string, moduleId?: number): AnswerRecord[] {
-  loadData();
-  let list = answersStore.filter((a) => a.userId === userId);
-  if (moduleId != null) list = list.filter((a) => a.moduleId === moduleId);
-  return list;
-}
-
-/** All answers (for admin statistics). */
-export function getAllAnswers(moduleId?: number): AnswerRecord[] {
-  loadData();
-  let list = [...answersStore];
-  if (moduleId != null) list = list.filter((a) => a.moduleId === moduleId);
-  return list;
-}
-
-function persistAnswers(): void {
-  try {
-    const dir = path.dirname(ANSWERS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const out = answersStore.map((a) => ({
-      userId: a.userId,
-      moduleId: a.moduleId,
-      questionId: a.questionId,
-      answer: a.answer,
-      isCorrect: a.isCorrect,
-      submittedAt: a.submittedAt.toISOString(),
-    }));
-    fs.writeFileSync(ANSWERS_FILE, JSON.stringify(out, null, 2), 'utf8');
-  } catch (e) {
-    console.warn('Store: could not persist answers.json', e);
-  }
-}
-
-function persistVideos(): void {
-  try {
-    const dir = path.dirname(VIDEOS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const out = videosStore.map((v) => ({
-      moduleId: v.moduleId,
-      videoType: v.videoType,
-      videoId: v.videoId,
-      preview: v.preview,
-      fileName: v.fileName,
-      fileSize: v.fileSize,
-      fileUrl: v.fileUrl,
-      uploadedBy: v.uploadedBy,
-    }));
-    fs.writeFileSync(VIDEOS_FILE, JSON.stringify(out, null, 2), 'utf8');
-  } catch (e) {
-    console.warn('Store: could not persist videos.json', e);
-  }
-}
-
-function persistUsers(): void {
-  try {
-    const dir = path.dirname(USERS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const out = Array.from(usersStore.values()).map((u) => ({
-      id: u.id,
-      username: u.username,
-      email: u.email,
-      passwordHash: u.passwordHash,
-      role: u.role,
-    }));
-    fs.writeFileSync(USERS_FILE, JSON.stringify(out, null, 2), 'utf8');
-  } catch (e) {
-    console.warn('Store: could not persist users.json', e);
-  }
-}
-
-export function upsertAnswer(data: { userId: string; moduleId: number; questionId: number; answer: string; isCorrect?: boolean }): AnswerRecord {
-  loadData();
-  const existing = answersStore.findIndex(
-    (a) => a.userId === data.userId && a.moduleId === data.moduleId && a.questionId === data.questionId
-  );
-  const record: AnswerRecord = {
-    ...data,
-    submittedAt: new Date(),
-  };
-  if (existing >= 0) {
-    answersStore[existing] = record;
-  } else {
-    answersStore.push(record);
-  }
-  persistAnswers();
-  return record;
-}
-
 // --- Videos ---
-export function getVideos(moduleId?: number, videoType?: string): VideoRecord[] {
-  loadData();
-  let list = [...videosStore];
-  if (moduleId != null) list = list.filter((v) => v.moduleId === moduleId);
-  if (videoType) list = list.filter((v) => v.videoType === videoType);
-  return list;
-}
-
-/**
- * validateVideoData(video)
- *
- * Ensures video preview/fileUrl:
- * - Are Cloudinary URLs (must start with https://res.cloudinary.com/)
- * - Are NOT data: URLs
- * - Are NOT blob: URLs
- * - Are NOT local paths such as /public/uploads
- */
-function validateVideoData(video: VideoRecord): void {
-  const isCloudinaryUrl = (value: string | undefined | null) =>
-    !!value && value.startsWith('https://res.cloudinary.com/');
-
-  const rejectIfInvalid = (value: string | undefined | null) => {
-    if (!value) return;
-
-    // Reject data: URLs
-    if (value.startsWith('data:')) {
-      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
-    }
-
-    // Reject blob: URLs
-    if (value.startsWith('blob:')) {
-      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
-    }
-
-    // Reject local paths like /public/uploads
-    if (value.includes('/public/uploads')) {
-      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
-    }
-
-    // Enforce Cloudinary-only URLs
-    if (!isCloudinaryUrl(value)) {
-      throw new Error('Invalid video URL. Only Cloudinary URLs allowed.');
-    }
+function mapVideoRow(row: any): VideoRecord {
+  return {
+    id: row.id,
+    moduleId: row.module_id,
+    videoType: row.video_type,
+    videoId: Number(row.video_id),
+    preview: row.preview,
+    fileName: row.file_name,
+    fileSize: Number(row.file_size),
+    fileUrl: row.file_url,
+    uploadedBy: row.uploaded_by,
+    createdAt: row.created_at,
   };
-
-  rejectIfInvalid(video.preview);
-  rejectIfInvalid(video.fileUrl);
 }
 
-export function createVideo(data: VideoRecord): VideoRecord {
-  loadData();
-  validateVideoData(data);
-  videosStore.push({ ...data });
-  persistVideos();
-  return data;
+export async function getVideos(moduleId?: number, videoType?: string): Promise<VideoRecord[]> {
+  let sql = 'SELECT * FROM videos WHERE 1=1';
+  const params: any[] = [];
+  let paramCount = 1;
+
+  if (moduleId !== undefined) {
+    sql += ` AND module_id = $${paramCount}`;
+    params.push(moduleId);
+    paramCount++;
+  }
+  if (videoType !== undefined) {
+    sql += ` AND video_type = $${paramCount}`;
+    params.push(videoType);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+  const rows = await query(sql, params);
+  return rows.map(mapVideoRow);
 }
 
-export function updateVideo(
+export async function getVideoById(moduleId: number, videoType: string, videoId: number): Promise<VideoRecord | undefined> {
+  const row = await queryOne(
+    'SELECT * FROM videos WHERE module_id = $1 AND video_type = $2 AND video_id = $3',
+    [moduleId, videoType, videoId]
+  );
+  return row ? mapVideoRow(row) : undefined;
+}
+
+export async function createVideo(data: VideoRecord): Promise<VideoRecord> {
+  await run(
+    `INSERT INTO videos (module_id, video_type, video_id, preview, file_name, file_size, file_url, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (module_id, video_type, video_id)
+     DO UPDATE SET preview = EXCLUDED.preview, file_name = EXCLUDED.file_name, file_size = EXCLUDED.file_size, file_url = EXCLUDED.file_url`,
+    [data.moduleId, data.videoType, data.videoId, data.preview, data.fileName, data.fileSize, data.fileUrl, data.uploadedBy]
+  );
+  const created = await getVideoById(data.moduleId, data.videoType, data.videoId);
+  if (!created) throw new Error('Failed to retrieve created video');
+  return created;
+}
+
+export async function updateVideo(
   moduleId: number,
   videoType: string,
   videoId: number,
   updates: Partial<Pick<VideoRecord, 'preview' | 'fileName' | 'fileSize' | 'fileUrl'>>
-): VideoRecord | null {
-  loadData();
-  const i = videosStore.findIndex((v) => v.moduleId === moduleId && v.videoType === videoType && v.videoId === videoId);
-  if (i === -1) return null;
-  
-  // Validate updates before applying
-  const updatedVideo = { ...videosStore[i], ...updates };
-  validateVideoData(updatedVideo);
-  
-  videosStore[i] = updatedVideo;
-  persistVideos();
-  return videosStore[i];
+): Promise<VideoRecord | null> {
+  await run(
+    `UPDATE videos SET
+     preview = COALESCE($1, preview),
+     file_name = COALESCE($2, file_name),
+     file_size = COALESCE($3, file_size),
+     file_url = COALESCE($4, file_url)
+     WHERE module_id = $5 AND video_type = $6 AND video_id = $7`,
+    [updates.preview ?? null, updates.fileName ?? null, updates.fileSize ?? null, updates.fileUrl ?? null, moduleId, videoType, videoId]
+  );
+  const updated = await getVideoById(moduleId, videoType, videoId);
+  return updated ?? null;
 }
 
-export function deleteVideo(moduleId: number, videoType: string, videoId: number): boolean {
-  loadData();
-  const i = videosStore.findIndex((v) => v.moduleId === moduleId && v.videoType === videoType && v.videoId === videoId);
-  if (i === -1) return false;
-  videosStore.splice(i, 1);
-  persistVideos();
+export async function deleteVideo(moduleId: number, videoType: string, videoId: number): Promise<boolean> {
+  await run('DELETE FROM videos WHERE module_id = $1 AND video_type = $2 AND video_id = $3', [moduleId, videoType, videoId]);
   return true;
 }
 
-export function getVideoById(moduleId: number, videoType: string, videoId: number): VideoRecord | undefined {
-  loadData();
-  return videosStore.find((v) => v.moduleId === moduleId && v.videoType === videoType && v.videoId === videoId);
-}
-
-// --- Users (for admin login) ---
-export function getUserByUsername(username: string): UserRecord | undefined {
-  loadData();
-  return usersStore.get(username);
-}
-
-export function getUserById(id: string): UserRecord | undefined {
-  loadData();
-  return Array.from(usersStore.values()).find((u) => u.id === id);
-}
-
-export function getAllUsers(opts?: { role?: 'user' | 'admin'; search?: string }): UserRecord[] {
-  loadData();
-  let list = Array.from(usersStore.values());
-  if (opts?.role) list = list.filter((u) => u.role === opts.role);
-  if (opts?.search) {
-    const s = opts.search.toLowerCase();
-    list = list.filter((u) => u.username.toLowerCase().includes(s) || u.email.toLowerCase().includes(s));
+// --- Answers ---
+export async function getAnswers(userId: string, moduleId?: number): Promise<AnswerRecord[]> {
+  let sql = 'SELECT * FROM answers WHERE user_id = $1';
+  const params: any[] = [userId];
+  if (moduleId !== undefined) {
+    sql += ' AND module_id = $2';
+    params.push(moduleId);
   }
-  return list;
+  const rows = await query(sql, params);
+  return rows.map((r: any) => ({
+    userId: r.user_id,
+    moduleId: r.module_id,
+    questionId: r.question_id,
+    answer: r.answer,
+    isCorrect: Boolean(r.is_correct),
+    submittedAt: new Date(r.submitted_at),
+  }));
 }
 
-export function createUser(data: Omit<UserRecord, 'passwordHash'> & { password: string }): UserRecord {
-  loadData();
+export async function getAllAnswers(moduleId?: number): Promise<AnswerRecord[]> {
+  let sql = 'SELECT * FROM answers';
+  const params: any[] = [];
+  if (moduleId !== undefined) {
+    sql += ' WHERE module_id = $1';
+    params.push(moduleId);
+  }
+  const rows = await query(sql, params);
+  return rows.map((r: any) => ({
+    userId: r.user_id,
+    moduleId: r.module_id,
+    questionId: r.question_id,
+    answer: r.answer,
+    isCorrect: Boolean(r.is_correct),
+    submittedAt: new Date(r.submitted_at),
+  }));
+}
+
+export async function upsertAnswer(data: { userId: string; moduleId: number; questionId: number; answer: string; isCorrect?: boolean }): Promise<AnswerRecord> {
+  const isCorrectInt = data.isCorrect ? 1 : 0; // Convert boolean to integer for Postgres
+
+  await run(
+    `INSERT INTO answers (user_id, module_id, question_id, answer, is_correct)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id, module_id, question_id)
+     DO UPDATE SET answer = EXCLUDED.answer, is_correct = EXCLUDED.is_correct, submitted_at = CURRENT_TIMESTAMP`,
+    [data.userId, data.moduleId, data.questionId, data.answer, isCorrectInt]
+  );
+  return { ...data, submittedAt: new Date() };
+}
+
+
+// 2. NEW: Bulk Insert function for maximum performance
+export async function upsertAnswers(dataList: { userId: string; moduleId: number; questionId: number; answer: string; isCorrect?: boolean }[]): Promise<AnswerRecord[]> {
+  if (!dataList || dataList.length === 0) return [];
+
+  const values: any[] = [];
+  const placeholders: string[] = [];
+  let i = 1;
+
+  dataList.forEach((data) => {
+    const isCorrectInt = data.isCorrect ? 1 : 0; // Convert boolean to integer
+    placeholders.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++})`);
+    values.push(data.userId, data.moduleId, data.questionId, data.answer, isCorrectInt);
+  });
+
+  // Single query execution for all answers
+  const sql = `
+    INSERT INTO answers (user_id, module_id, question_id, answer, is_correct)
+    VALUES ${placeholders.join(', ')}
+    ON CONFLICT (user_id, module_id, question_id)
+    DO UPDATE SET
+      answer = EXCLUDED.answer,
+      is_correct = EXCLUDED.is_correct,
+      submitted_at = CURRENT_TIMESTAMP
+  `;
+
+  await run(sql, values);
+
+  return dataList.map(data => ({ ...data, submittedAt: new Date() }));
+}
+
+// --- Users & Login History ---
+export async function getUserByUsername(username: string): Promise<UserRecord | undefined> {
+  const row = await queryOne('SELECT * FROM users WHERE username = $1', [username]);
+  const r = row as any;
+  return r ? { id: r.id, username: r.username, email: r.email, passwordHash: r.password_hash, role: r.role as 'user' | 'admin' } : undefined;
+}
+
+export async function getUserById(id: string): Promise<UserRecord | undefined> {
+  const row = await queryOne('SELECT * FROM users WHERE id = $1', [id]);
+  const r = row as any;
+  return r ? { id: r.id, username: r.username, email: r.email, passwordHash: r.password_hash, role: r.role as 'user' | 'admin' } : undefined;
+}
+
+export async function getAllUsers(opts?: { role?: 'user' | 'admin'; search?: string }): Promise<UserRecord[]> {
+  let sql = 'SELECT * FROM users WHERE 1=1';
+  const params: any[] = [];
+  let paramCount = 1;
+
+  if (opts?.role) {
+    sql += ` AND role = $${paramCount}`;
+    params.push(opts.role);
+    paramCount++;
+  }
+  if (opts?.search) {
+    sql += ` AND (LOWER(username) LIKE $${paramCount} OR LOWER(email) LIKE $${paramCount})`;
+    params.push(`%${opts.search.toLowerCase()}%`);
+  }
+  const rows = await query(sql, params);
+  return rows.map((row: any) => ({
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    passwordHash: row.password_hash,
+    role: row.role as 'user' | 'admin'
+  }));
+}
+
+export async function createUser(data: Omit<UserRecord, 'passwordHash'> & { password: string }): Promise<UserRecord> {
   const bcrypt = require('bcryptjs');
   const passwordHash = bcrypt.hashSync(data.password, 10);
-  const record: UserRecord = {
-    id: data.id,
-    username: data.username,
-    email: data.email,
-    passwordHash,
-    role: data.role,
-  };
-  if (usersStore.has(data.username)) throw new Error(`User ${data.username} already exists`);
-  usersStore.set(data.username, record);
-  persistUsers();
-  return record;
+  await run(
+    'INSERT INTO users (id, username, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
+    [data.id, data.username, data.email, passwordHash, data.role]
+  );
+  return { id: data.id, username: data.username, email: data.email, passwordHash, role: data.role };
 }
 
-export function verifyUserPassword(username: string, password: string): boolean {
-  const user = getUserByUsername(username);
-  if (!user) return false;
-  const bcrypt = require('bcryptjs');
-  return bcrypt.compareSync(password, user.passwordHash);
-}
-
-export function updateUserById(
+export async function updateUserById(
   id: string,
   updates: Partial<Pick<UserRecord, 'username' | 'email' | 'role'> & { password?: string }>
-): UserRecord | null {
-  loadData();
-  const user = getUserById(id);
+): Promise<UserRecord | null> {
+  const user = await getUserById(id);
   if (!user) return null;
-  const oldUsername = user.username;
-  const next: UserRecord = {
-    id: user.id,
-    username: updates.username ?? user.username,
-    email: updates.email ?? user.email,
-    role: updates.role ?? user.role,
-    passwordHash: user.passwordHash,
-  };
+
+  let newHash = user.passwordHash;
   if (updates.password) {
     const bcrypt = require('bcryptjs');
-    next.passwordHash = bcrypt.hashSync(updates.password, 10);
+    newHash = bcrypt.hashSync(updates.password, 10);
   }
-  usersStore.delete(oldUsername);
-  usersStore.set(next.username, next);
-  persistUsers();
-  return next;
+
+  await run(
+    'UPDATE users SET username = COALESCE($1,username), email = COALESCE($2,email), role = COALESCE($3,role), password_hash = $4 WHERE id = $5',
+    [updates.username ?? null, updates.email ?? null, updates.role ?? null, newHash, id]
+  );
+  const updated = await getUserById(id);
+  return updated ?? null;
 }
 
-export function deleteUserById(id: string): boolean {
-  loadData();
-  const user = getUserById(id);
-  if (!user) return false;
-  usersStore.delete(user.username);
-  persistUsers();
+export async function deleteUserById(id: string): Promise<boolean> {
+  await run('DELETE FROM users WHERE id = $1', [id]);
   return true;
 }
 
-// --- Login history ---
-export function addLoginHistory(record: LoginHistoryRecord): void {
-  loginHistoryStore.push(record);
-  if (loginHistoryStore.length > 1000) loginHistoryStore.shift();
+export async function addLoginHistory(record: LoginHistoryRecord): Promise<void> {
+  await run(
+    'INSERT INTO login_history (user_id, username, email, role, login_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [record.userId, record.username, record.email, record.role, record.loginAt, record.ipAddress, record.userAgent]
+  );
 }
 
-export function getLoginHistory(limit = 100): LoginHistoryRecord[] {
-  return [...loginHistoryStore].reverse().slice(0, limit);
+export async function getLoginHistory(limit = 100): Promise<LoginHistoryRecord[]> {
+  const rows = await query('SELECT * FROM login_history ORDER BY login_at DESC LIMIT $1', [limit]);
+  return rows.map((r: any) => ({
+    id: r.id, userId: r.user_id, username: r.username, email: r.email, role: r.role,
+    loginAt: new Date(r.login_at), ipAddress: r.ip_address, userAgent: r.user_agent
+  }));
 }
 
-// --- Persist modules/questions to file (admin data/save) ---
-export function replaceModulesAndQuestions(
-  newModules: ModuleRecord[],
-  newQuestionsByModule: Record<string, Omit<QuestionRecord, 'moduleId'>[]>
-): void {
-  modules.length = 0;
-  modules.push(...newModules.map((m) => ({ ...m })));
-  for (const key of Object.keys(questionsByModule)) delete questionsByModule[key];
-  for (const [modId, list] of Object.entries(newQuestionsByModule)) {
-    const moduleIdNum = parseInt(modId, 10);
-    questionsByModule[modId] = (list || []).map((q) => ({ ...q, moduleId: moduleIdNum }));
-  }
-  persistData();
-}
-
-function persistData(): void {
+// --- Health Status ---
+export async function getStoreStatus(): Promise<{ modules: number; questions: number; users: number }> {
   try {
-    const questionsOut: Record<string, Array<Omit<QuestionRecord, 'moduleId'>>> = {};
-    for (const [modId, list] of Object.entries(questionsByModule)) {
-      questionsOut[modId] = list.map(({ moduleId: _, ...q }) => ({ ...q }));
-    }
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify({ modules, questions: questionsOut }, null, 2),
-      'utf8'
-    );
+    const modCount = await queryOne('SELECT COUNT(*) as count FROM modules', []) as any;
+    const qCount = await queryOne('SELECT COUNT(*) as count FROM questions', []) as any;
+    const uCount = await queryOne('SELECT COUNT(*) as count FROM users', []) as any;
+    return {
+      modules: parseInt(modCount?.count || '0', 10),
+      questions: parseInt(qCount?.count || '0', 10),
+      users: parseInt(uCount?.count || '0', 10)
+    };
   } catch (e) {
-    console.warn('Store: could not persist app-data.json', e);
+    return { modules: 0, questions: 0, users: 0 };
   }
 }
 
-// --- Health (no DB) ---
-export function getStoreStatus(): { modules: number; questions: number; users: number } {
-  loadData();
-  let questionCount = 0;
-  for (const list of Object.values(questionsByModule)) questionCount += list.length;
-  return { modules: modules.length, questions: questionCount, users: usersStore.size };
+// Ensure old synchronous functions aren't exported
+export function replaceModulesAndQuestions() {
+  throw new Error("replaceModulesAndQuestions is deprecated. Update Postgres directly.");
 }

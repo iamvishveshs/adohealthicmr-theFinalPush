@@ -28,11 +28,24 @@ export async function GET(
     if (isNaN(questionId) || isNaN(moduleIdNum)) {
       return NextResponse.json({ error: 'Invalid question ID or module ID' }, { status: 400 });
     }
-    const question = await getQuestionById(questionId, moduleIdNum);
+    const question: any = await getQuestionById(questionId, moduleIdNum);
     if (!question) {
       return NextResponse.json({ error: 'Question not found' }, { status: 404 });
     }
-    return NextResponse.json({ success: true, question });
+
+    // FIX: Parse the stringified options array into a real JavaScript array
+    let parsedOptions = question.options;
+    if (typeof question.options === 'string') {
+      try {
+        parsedOptions = JSON.parse(question.options);
+      } catch (e) {
+        console.error("Failed to parse options for question:", question.id);
+        parsedOptions = [];
+      }
+    }
+    const formattedQuestion = { ...question, options: parsedOptions };
+
+    return NextResponse.json({ success: true, question: formattedQuestion });
   } catch (error) {
     console.error('Error fetching question:', error);
     return NextResponse.json(

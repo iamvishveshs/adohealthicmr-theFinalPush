@@ -1,3 +1,42 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
-size 2
+[
+  {
+    "moduleId": 8,
+    "videoType": "english",
+    "videoId": 1,
+    "preview": "/images/video-placeholder.svg",
+    "fileName": "videoplayback.mp4",
+    "fileSize": 95268761,
+    "fileUrl": "/uploads/videos/8_english_1_1772431399987_videoplayback.mp4",
+    "uploadedBy": "admin-1"
+  },
+  {
+    "moduleId": 8,
+    "videoType": "punjabi",
+    "videoId": 1,
+    "preview": "/images/video-placeholder.svg",
+    "fileName": "videoplayback.mp4",
+    "fileSize": 95268761,
+    "fileUrl": "/uploads/videos/8_punjabi_1_1772442212533_videoplayback.mp4",
+    "uploadedBy": "admin-1"
+  },
+  {
+    "moduleId": 8,
+    "videoType": "hindi",
+    "videoId": 1,
+    "preview": "/images/video-placeholder.svg",
+    "fileName": "videoplayback.mp4",
+    "fileSize": 95268761,
+    "fileUrl": "/uploads/videos/8_hindi_1_1772443353253_videoplayback.mp4",
+    "uploadedBy": "admin-1"
+  },
+  {
+    "moduleId": 8,
+    "videoType": "activity",
+    "videoId": 1,
+    "preview": "/images/video-placeholder.svg",
+    "fileName": "777 Charlie 2022.mkv",
+    "fileSize": 1463675145,
+    "fileUrl": "/uploads/videos/NaN__1_1772477272377_777_Charlie_2022.mkv",
+    "uploadedBy": "admin-1"
+  }
+]

@@ -18,11 +18,13 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
     const moduleIdNum = moduleIdParam ? parseInt(moduleIdParam) : undefined;
     const moduleFilter = moduleIdNum != null && !isNaN(moduleIdNum) ? moduleIdNum : undefined;
 
-    const status = getStoreStatus();
+    const status = await getStoreStatus();
     const totalModules = status.modules;
     const totalQuestions = status.questions;
     const totalUsers = user.role === 'admin' ? status.users : undefined;
-    const totalVideos = getVideos(moduleFilter).length;
+
+    const videos = await getVideos(moduleFilter);
+    const totalVideos = videos.length;
 
     let answerStats: {
       totalAnswers: number;
@@ -31,8 +33,10 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
       accuracyRate: string;
       uniqueUsersAnswered?: number;
     };
+
     if (user.role === 'admin') {
-      const allAnswersList = getAllAnswers(moduleFilter);
+      // FIX: Added await here
+      const allAnswersList = await getAllAnswers(moduleFilter);
       const totalAnswers = allAnswersList.length;
       const correctAnswers = allAnswersList.filter((a) => a.isCorrect).length;
       const uniqueUsersAnswered = new Set(allAnswersList.map((a) => a.userId)).size;
@@ -44,7 +48,8 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
         uniqueUsersAnswered,
       };
     } else {
-      const userAnswers = getAnswers(user.userId, moduleFilter);
+      // FIX: Added await here
+      const userAnswers = await getAnswers(user.userId, moduleFilter);
       const totalAnswers = userAnswers.length;
       const correctAnswers = userAnswers.filter((a) => a.isCorrect).length;
       answerStats = {
@@ -60,11 +65,19 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
       moduleStats.map(async (module) => {
         const questions = await getQuestions(module.id);
         const questionsCount = questions.length;
-        const videosCount = getVideos(module.id).length;
-        const moduleAnswers =
-          user.role === 'admin' ? getAllAnswers(module.id) : getAnswers(user.userId, module.id);
+
+        // FIX: Added await and separated the length check
+        const moduleVideos = await getVideos(module.id);
+        const videosCount = moduleVideos.length;
+
+        // FIX: Added awaits to both sides of the ternary operator
+        const moduleAnswers = user.role === 'admin'
+          ? await getAllAnswers(module.id)
+          : await getAnswers(user.userId, module.id);
+
         const totalAnswers = moduleAnswers.length;
         const correctAnswers = moduleAnswers.filter((a) => a.isCorrect).length;
+
         return {
           moduleId: module.id,
           moduleTitle: module.title,

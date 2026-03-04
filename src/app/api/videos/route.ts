@@ -18,7 +18,7 @@ export const GET = requireAuth(async (request: NextRequest) => {
     const moduleId = searchParams.get('moduleId');
     const videoType = searchParams.get('videoType');
     const moduleIdNum = moduleId ? parseInt(moduleId) : undefined;
-    const videos = getVideos(
+    const videos = await getVideos(
       isNaN(moduleIdNum as number) ? undefined : moduleIdNum,
       videoType || undefined
     );
@@ -44,7 +44,7 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       return NextResponse.json(data, { status: res.status });
     }
     const { moduleId, videoType, videoId, preview, fileName, fileSize, fileUrl, publicId } = body;
-    
+
     // Validate required fields
     if (!moduleId || !videoType || videoId === undefined || !fileName || fileSize === undefined) {
       return NextResponse.json(
@@ -52,7 +52,7 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
         { status: 400 }
       );
     }
-    
+
     // Generate preview from publicId if preview is missing; use placeholder for local fileUrl
     let finalPreview = preview;
     if (!finalPreview && publicId) {
@@ -74,7 +74,7 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
         { status: 400 }
       );
     }
-    const newVideo = createVideo({
+    const newVideo = await createVideo({
       moduleId,
       videoType,
       videoId,
@@ -84,12 +84,12 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       fileUrl, // Include fileUrl (Cloudinary secure_url) for video playback
       uploadedBy: user.userId,
     });
-    
+
     // Ensure response includes all video data including fileUrl for immediate preview
     return NextResponse.json(
-      { 
-        success: true, 
-        message: 'Video created successfully', 
+      {
+        success: true,
+        message: 'Video created successfully',
         video: {
           ...newVideo,
           // Explicitly include fileUrl in response for frontend preview

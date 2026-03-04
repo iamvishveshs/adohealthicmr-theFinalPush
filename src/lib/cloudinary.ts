@@ -63,10 +63,10 @@ export async function uploadImage(
 
 /**
  * Upload a video to Cloudinary using streaming
- * 
+ *
  * OPTIMIZATION: Uses upload_stream which streams the file in chunks to Cloudinary.
  * This prevents loading the entire file into memory, avoiding out-of-memory crashes.
- * 
+ *
  * @param file - Buffer or base64 string (for backward compatibility)
  * @param folder - Cloudinary folder path
  * @param options - Upload options including compression settings
@@ -144,10 +144,10 @@ export async function uploadVideo(
 
 /**
  * Stream a File object directly to Cloudinary
- * 
+ *
  * OPTIMIZATION: This function streams the file in chunks from the Node.js server
  * to Cloudinary, preventing out-of-memory crashes for large files.
- * 
+ *
  * @param file - File object from FormData
  * @param folder - Cloudinary folder path
  * @param options - Upload options
@@ -212,12 +212,12 @@ export async function uploadVideoStreamFromFile(
       while (offset < totalSize) {
         const chunk = file.slice(offset, Math.min(offset + chunkSize, totalSize));
         const chunkBuffer = Buffer.from(await chunk.arrayBuffer());
-        
+
         if (!uploadStream.write(chunkBuffer)) {
           // Wait for drain if buffer is full
           await new Promise((resolve) => uploadStream.once('drain', resolve));
         }
-        
+
         offset += chunkBuffer.length;
       }
 
@@ -248,10 +248,10 @@ export async function deleteFile(publicId: string, resourceType: 'image' | 'vide
  */
 export function getOptimizedImageUrl(publicId: string, width?: number, height?: number): string {
   const transformations: string[] = ['f_auto', 'q_auto'];
-  
+
   if (width) transformations.push(`w_${width}`);
   if (height) transformations.push(`h_${height}`);
-  
+
   return cloudinary.url(publicId, {
     transformation: [transformations.join(',')],
     secure: true,

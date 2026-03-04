@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { replaceModulesAndQuestions } from '@/lib/store';
 import { requireAdmin } from '@/backend/lib/auth';
 import { isExpressEnabled, proxyToExpress } from '@/lib/express-proxy';
 
@@ -19,29 +18,15 @@ export const POST = requireAdmin(async (request: NextRequest) => {
       const result = await res.json();
       return NextResponse.json(result, { status: res.status });
     }
-    const modules = Array.isArray(data.modules) ? data.modules : [];
-    const questions: Record<string, Array<{ id: number; question: string; options: string[]; correctAnswer?: number }>> = {};
-    if (data.questions && typeof data.questions === 'object') {
-      for (const [moduleIdStr, list] of Object.entries(data.questions)) {
-        if (Array.isArray(list)) {
-          questions[moduleIdStr] = list.map((q: any) => ({
-            id: q.id,
-            question: q.question,
-            options: q.options || [],
-            correctAnswer: q.correctAnswer,
-          }));
-        }
-      }
-    }
-    replaceModulesAndQuestions(
-      modules.map((m: any) => ({ id: m.id, title: m.title, description: m.description, color: m.color })),
-      questions
+
+    // Legacy direct save is no longer supported in the Postgres-backed store.
+    // This endpoint now requires the Express backend to handle data persistence.
+    return NextResponse.json(
+      {
+        error: 'Direct data save is not supported in this deployment. Please enable the Express backend or update the database directly.',
+      },
+      { status: 501 }
     );
-    return NextResponse.json({
-      success: true,
-      message: 'Data saved successfully',
-      savedAt: new Date().toISOString(),
-    });
   } catch (error) {
     console.error('Error saving data:', error);
     return NextResponse.json(

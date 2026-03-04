@@ -18,11 +18,15 @@ export function getPool(): Pool {
     if (!conn) {
       throw new Error('DATABASE_URL is not set. Add PostgreSQL connection string to .env');
     }
+
     pool = new Pool({
       connectionString: conn,
       max: 10,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 20000,
+      ssl: {
+        rejectUnauthorized: false,
+      },
     });
   }
   return pool;

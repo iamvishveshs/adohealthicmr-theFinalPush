@@ -7,27 +7,27 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Video metadata endpoint - saves video info after direct Cloudinary upload
- * 
+ *
  * NOTE: The actual video upload now happens directly from browser to Cloudinary.
  * This endpoint only saves the video metadata to the database.
  */
 export const POST = requireAdmin(async (request: NextRequest, user) => {
   try {
     const body = await request.json();
-    
-    const { 
-      publicId, 
-      url, 
-      secure_url, 
-      format, 
-      duration, 
-      bytes, 
-      width, 
+
+    const {
+      publicId,
+      url,
+      secure_url,
+      format,
+      duration,
+      bytes,
+      width,
       height,
       fileName,
       fileSize,
-      moduleId, 
-      videoType 
+      moduleId,
+      videoType
     } = body;
 
     // Validate required fields - secure_url is preferred but url is acceptable
@@ -56,9 +56,9 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
 
     // Get the next videoId for this module and video type
     const moduleIdNum = parseInt(moduleId.toString(), 10);
-    const existingVideos = getVideos(moduleIdNum, videoType);
-    const nextVideoId = existingVideos.length > 0 
-      ? Math.max(...existingVideos.map(v => v.videoId)) + 1 
+    const existingVideos =await getVideos(moduleIdNum, videoType);
+    const nextVideoId = existingVideos.length > 0
+      ? Math.max(...existingVideos.map(v => v.videoId)) + 1
       : 1;
 
     // Generate preview thumbnail from Cloudinary
@@ -66,7 +66,7 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
 
     // Use secure_url if available, otherwise use url
     const baseUrl = secure_url || url;
-    
+
     // Generate optimized URL with Cloudinary transformations: f_mp4,f_auto,q_auto
     // f_mp4: explicit MP4 format for best compatibility
     // f_auto: automatic format fallback
@@ -77,7 +77,7 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
       optimizedUrl = baseUrl.replace(/\/upload\/[^\/]+\//, '/upload/');
       // Apply f_mp4,f_auto,q_auto transformations for full browser compatibility
       optimizedUrl = optimizedUrl.replace('/upload/', '/upload/f_mp4,f_auto,q_auto/');
-      
+
       console.log('[Upload API] URL optimized:', {
         original: baseUrl,
         optimized: optimizedUrl,
@@ -119,9 +119,9 @@ export const POST = requireAdmin(async (request: NextRequest, user) => {
   } catch (error) {
     console.error('Error saving video metadata:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to save video metadata', 
-        details: error instanceof Error ? error.message : 'Unknown error' 
+      {
+        error: 'Failed to save video metadata',
+        details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );

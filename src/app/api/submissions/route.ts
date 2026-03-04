@@ -1,28 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllAnswers, getModuleById } from '@/lib/store';
+import { getAllAnswers, getAnswers, getModuleById } from '@/lib/store';
 import { requireAdmin } from '@/backend/lib/auth';
 import { isExpressEnabled, proxyToExpress } from '@/lib/express-proxy';
 
 export const dynamic = 'force-dynamic';
 
-/** Admin only: return all user question/answer submissions. */
-export const GET = requireAdmin(async (request: NextRequest) => {
+export const GET = requireAdmin(async (request: NextRequest, user) => {
   try {
+    const { searchParams } = new URL(request.url);
+    const moduleIdParam = searchParams.get('moduleId');
+
     if (isExpressEnabled()) {
-      const res = await proxyToExpress('/api/submissions');
+      const q = searchParams.toString();
+      const res = await proxyToExpress(`/api/submissions${q ? '?' + q : ''}`);
       const data = await res.json();
       return NextResponse.json(data, { status: res.status });
     }
-    const all = getAllAnswers();
+
+    const moduleId = moduleIdParam ? parseInt(moduleIdParam, 10) : undefined;
+
+    // 1. Wait for the database to return the answers
+    const all = await getAllAnswers(moduleId);
+
     const modules = new Map<number, string>();
+
+    // 2. Properly await all map iterations
     const submissions = await Promise.all(
       all.map(async (a) => {
         let moduleTitle = modules.get(a.moduleId);
+
         if (moduleTitle === undefined) {
+          // 3. Wait for the database to get the module details
           const mod = await getModuleById(a.moduleId);
-          moduleTitle = mod?.title ?? `Module ${a.moduleId}`;
+          moduleTitle = mod ? mod.title : 'Unknown Module';
           modules.set(a.moduleId, moduleTitle);
         }
+
         return {
           userId: a.userId,
           moduleId: a.moduleId,
@@ -34,8 +47,7 @@ export const GET = requireAdmin(async (request: NextRequest) => {
         };
       })
     );
-    // Newest first
-    submissions.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+
     return NextResponse.json({ success: true, submissions });
   } catch (error) {
     console.error('Error fetching submissions:', error);

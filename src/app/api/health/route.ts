@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const status = getStoreStatus();
+    const status = await getStoreStatus();
     const dbConfigured = hasDatabase();
     let adminUserExists = false;
     let totalUsers = 0;

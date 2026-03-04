@@ -1,18 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 /**
  * VideoUploader Component
- * 
- * Direct Cloudinary video upload with:
- * - Local video preview
- * - Upload progress tracking
- * - Support for large files (250MB+)
- * - Uses signed upload for security
- * - Uploads to "videos/" folder
+ * - Handles direct secure upload to Cloudinary
+ * - Notifies parent page.tsx on success to update PostgreSQL
  */
-export default function VideoUploader() {
+export default function VideoUploader({ moduleId, videoType, onUploadSuccess }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -22,23 +17,22 @@ export default function VideoUploader() {
   const fileInputRef = useRef(null);
 
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth';
-  const folder = 'videos';
+  const uploadPreset = 'adohealth_signed';
+  const folder = `videos/${moduleId}`;
 
   // Handle file selection
   const handleFileSelect = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('video/')) {
       setError('Please select a video file');
       return;
     }
 
-    // Validate file size (optional - Cloudinary can handle large files)
     const maxSize = 5 * 1024 * 1024 * 1024; // 5GB
     if (file.size > maxSize) {
-      setError(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum of 5GB`);
+      setError(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds 5GB`);
       return;
     }
 
@@ -47,353 +41,214 @@ export default function VideoUploader() {
     setUploadResult(null);
     setUploadProgress(0);
 
-    // Create preview URL
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
   };
 
   // Clean up preview URL on unmount
-  const cleanupPreview = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-    }
-  };
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
-  // Handle upload to Cloudinary with signed upload
+  // Handle secure upload to Cloudinary
   const handleUpload = async () => {
-    if (!selectedFile) {
-      setError('Please select a video file first');
-      return;
-    }
-
-    if (!cloudName) {
-      setError('Cloudinary cloud name is not configured. Please set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME in .env.local');
-      return;
-    }
+    if (!selectedFile) return;
 
     setUploading(true);
     setError(null);
-    setUploadProgress(0);
-    setUploadResult(null);
 
     try {
-      // Get signature from server for signed upload
-      const sigRes = await fetch('/api/signature');
-      if (!sigRes.ok) {
-        throw new Error('Failed to get upload signature');
-      }
-      const { timestamp, signature, apiKey } = await sigRes.json();
+      // 1. Get the signature from your API
+      const timestamp = Math.round(new Date().getTime() / 1000).toString();
+      const paramsToSign = {
+        timestamp: timestamp,
+        folder: folder,
+        upload_preset: uploadPreset,
+      };
 
-      // Create FormData with signed parameters
+      const signRes = await fetch('/api/sign-cloudinary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paramsToSign }),
+      });
+
+      const signData = await signRes.json();
+      if (!signData.signature) throw new Error(signData.error || "Signature failed");
+
+      // 2. Prepare FormData for Direct Upload
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('api_key', apiKey);
+      formData.append('api_key', process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY);
       formData.append('timestamp', timestamp);
-      formData.append('signature', signature);
+      formData.append('signature', signData.signature);
       formData.append('folder', folder);
-      formData.append('resource_type', 'video');
+      formData.append('upload_preset', uploadPreset);
 
-      // Use XMLHttpRequest for progress tracking
+      // 3. XHR for Progress Tracking
       const xhr = new XMLHttpRequest();
       const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
 
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (event) => {
+      xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
-          const percentComplete = Math.round((event.loaded / event.total) * 100);
-          setUploadProgress(percentComplete);
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(percent);
         }
-      });
+      };
 
-      // Handle successful upload
-      xhr.addEventListener('load', () => {
+      xhr.onload = () => {
         if (xhr.status === 200) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            setUploadResult(response);
-            setUploading(false);
-            setUploadProgress(100);
-          } catch (parseError) {
-            setError('Failed to parse upload response');
-            setUploading(false);
+          const response = JSON.parse(xhr.responseText);
+          setUploadResult(response);
+          setUploading(false);
+
+          // Notify page.tsx to save the record to PostgreSQL
+          if (onUploadSuccess) {
+            onUploadSuccess(
+              response.secure_url,
+              response.public_id,
+              response.bytes
+            );
           }
         } else {
-          try {
-            const errorResponse = JSON.parse(xhr.responseText);
-            setError(errorResponse.error?.message || `Upload failed with status ${xhr.status}`);
-          } catch {
-            setError(`Upload failed with status ${xhr.status}`);
-          }
+          const errorRes = JSON.parse(xhr.responseText || '{}');
+          setError(errorRes.error?.message || 'Upload failed.');
           setUploading(false);
         }
-      });
+      };
 
-      // Handle upload errors
-      xhr.addEventListener('error', () => {
-        setError('Network error occurred during upload. Please check your internet connection.');
+      xhr.onerror = () => {
+        setError('Network error during upload.');
         setUploading(false);
-      });
+      };
 
-      // Handle upload abort
-      xhr.addEventListener('abort', () => {
-        setError('Upload was cancelled');
-        setUploading(false);
-      });
-
-      // Start upload
       xhr.open('POST', uploadUrl);
       xhr.send(formData);
+
     } catch (err) {
-      setError('Failed to initialize upload: ' + err.message);
+      setError(err.message || 'Failed to initiate secure upload.');
       setUploading(false);
     }
   };
 
-  // Handle reset
   const handleReset = () => {
-    cleanupPreview();
     setSelectedFile(null);
     setPreviewUrl(null);
     setUploading(false);
     setUploadProgress(0);
     setUploadResult(null);
     setError(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Get video URL from result
-  const getVideoUrl = () => {
-    if (!uploadResult) return null;
-    return uploadResult.secure_url || uploadResult.url;
-  };
-
-  const videoUrl = getVideoUrl();
+  const videoUrl = uploadResult?.secure_url || uploadResult?.url;
 
   return (
-    <div className="video-uploader-container" style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
-      <h2 style={{ marginBottom: '20px' }}>Video Uploader</h2>
-
-      {/* Upload Tips */}
-      <div style={{ 
-        marginBottom: '20px', 
-        padding: '15px', 
-        backgroundColor: '#e3f2fd', 
-        borderRadius: '8px',
-        border: '1px solid #90caf9'
-      }}>
-        <h4 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>💡 Tips for Faster Uploads:</h4>
-        <ul style={{ margin: 0, paddingLeft: '20px', color: '#1976d2', fontSize: '14px' }}>
-          <li><strong>Compress videos before uploading</strong> - Use tools like Handbrake or online compressors to reduce file size</li>
-          <li><strong>Use shorter videos when possible</strong> - Keep videos under 5 minutes for faster uploads</li>
-          <li><strong>Ensure stable internet connection</strong> - A fast, stable connection significantly improves upload speed</li>
-          <li><strong>Use direct Cloudinary upload</strong> - For large files (250MB+), use the direct upload option</li>
-        </ul>
-      </div>
-
+    <div className="video-uploader-container" style={{ width: '100%', padding: '10px' }}>
       {/* File Selection */}
-      <div style={{ marginBottom: '20px' }}>
-        <label
-          htmlFor="video-file-input"
-          style={{
-            display: 'inline-block',
-            padding: '10px 20px',
-            backgroundColor: '#0070f3',
-            color: 'white',
-            borderRadius: '5px',
-            cursor: 'pointer',
-            marginBottom: '10px',
-          }}
-        >
-          {selectedFile ? 'Change Video File' : 'Select Video File'}
-        </label>
-        <input
-          id="video-file-input"
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          onChange={handleFileSelect}
-          disabled={uploading}
-          style={{ display: 'none' }}
-        />
-        {selectedFile && (
-          <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
-            Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
-          </div>
-        )}
-      </div>
+      {!uploadResult && (
+        <div style={{ marginBottom: '15px', textAlign: 'center' }}>
+          <label
+            htmlFor={`video-input-${moduleId}-${videoType}`}
+            style={{
+              display: 'inline-block',
+              padding: '8px 16px',
+              backgroundColor: '#0070f3',
+              color: 'white',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold'
+            }}
+          >
+            {selectedFile ? 'Change Video' : `Select ${videoType} Video`}
+          </label>
+          <input
+            id={`video-input-${moduleId}-${videoType}`}
+            ref={fileInputRef}
+            type="file"
+            accept="video/*"
+            onChange={handleFileSelect}
+            disabled={uploading}
+            style={{ display: 'none' }}
+          />
+          {selectedFile && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+              {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Error Display */}
       {error && (
-        <div
-          style={{
-            padding: '15px',
-            backgroundColor: '#fee',
-            border: '1px solid #fcc',
-            borderRadius: '5px',
-            color: '#c00',
-            marginBottom: '20px',
-          }}
-        >
+        <div style={{ padding: '10px', backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '5px', color: '#c00', marginBottom: '15px', fontSize: '13px' }}>
           <strong>Error:</strong> {error}
         </div>
       )}
 
       {/* Local Preview */}
       {previewUrl && !uploadResult && (
-        <div style={{ marginBottom: '20px' }}>
-          <h3>Preview</h3>
-          <video
-            src={previewUrl}
-            controls
-            style={{
-              width: '100%',
-              maxHeight: '400px',
-              borderRadius: '5px',
-              backgroundColor: '#000',
-            }}
-          />
+        <div style={{ marginBottom: '15px' }}>
+          <video src={previewUrl} controls style={{ width: '100%', maxHeight: '250px', borderRadius: '5px', backgroundColor: '#000' }} />
         </div>
       )}
 
-      {/* Upload Button */}
+      {/* Upload Button & Progress */}
       {selectedFile && !uploadResult && (
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '15px' }}>
           <button
             onClick={handleUpload}
-            disabled={uploading || !selectedFile}
+            disabled={uploading}
             style={{
-              padding: '12px 24px',
-              backgroundColor: uploading ? '#ccc' : '#0070f3',
+              width: '100%',
+              padding: '10px',
+              backgroundColor: uploading ? '#ccc' : '#22c55e',
               color: 'white',
               border: 'none',
               borderRadius: '5px',
               cursor: uploading ? 'not-allowed' : 'pointer',
-              fontSize: '16px',
               fontWeight: 'bold',
+              fontSize: '14px'
             }}
           >
-            {uploading ? 'Uploading...' : 'Upload to Cloudinary'}
+            {uploading ? `Uploading ${uploadProgress}%...` : 'Confirm & Upload Video'}
           </button>
-        </div>
-      )}
 
-      {/* Upload Progress */}
-      {uploading && (
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-            <span>Upload Progress:</span>
-            <span style={{ fontWeight: 'bold' }}>{uploadProgress}%</span>
-          </div>
-          <div
-            style={{
-              width: '100%',
-              height: '30px',
-              backgroundColor: '#e0e0e0',
-              borderRadius: '15px',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                  width: `${uploadProgress}%`,
-                  height: '100%',
-                  backgroundColor: '#0070f3',
-                  transition: 'width 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                }}
-            >
-              {uploadProgress}%
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Result */}
-      {uploadResult && (
-        <div style={{ marginTop: '30px' }}>
-          <div
-            style={{
-              padding: '20px',
-              backgroundColor: '#e8f5e9',
-              border: '1px solid #4caf50',
-              borderRadius: '5px',
-              marginBottom: '20px',
-            }}
-          >
-            <h3 style={{ color: '#2e7d32', marginTop: 0 }}>✅ Upload Successful!</h3>
+          {uploading && (
             <div style={{ marginTop: '15px' }}>
-              <div style={{ marginBottom: '10px' }}>
-                <strong>Public ID:</strong> {uploadResult.public_id}
+              <div style={{ width: '100%', height: '10px', backgroundColor: '#e0e0e0', borderRadius: '5px', overflow: 'hidden' }}>
+                <div style={{ width: `${uploadProgress}%`, height: '100%', backgroundColor: '#0070f3', transition: 'width 0.2s' }} />
               </div>
-              <div style={{ marginBottom: '10px' }}>
-                <strong>Video URL:</strong>
-                <a
-                  href={videoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: '#0070f3', marginLeft: '10px', wordBreak: 'break-all' }}
-                >
-                  {videoUrl}
-                </a>
-              </div>
-              {uploadResult.bytes && (
-                <div style={{ marginBottom: '10px' }}>
-                  <strong>File Size:</strong> {(uploadResult.bytes / 1024 / 1024).toFixed(2)} MB
-                </div>
-              )}
-              {uploadResult.duration && (
-                <div style={{ marginBottom: '10px' }}>
-                  <strong>Duration:</strong> {uploadResult.duration.toFixed(2)} seconds
-                </div>
-              )}
-              {uploadResult.width && uploadResult.height && (
-                <div>
-                  <strong>Resolution:</strong> {uploadResult.width} x {uploadResult.height}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Uploaded Video Player */}
-          {videoUrl && (
-            <div style={{ marginTop: '20px' }}>
-              <h3>Uploaded Video</h3>
-              <video
-                src={videoUrl}
-                controls
-                style={{
-                  width: '100%',
-                  maxHeight: '500px',
-                  borderRadius: '5px',
-                  backgroundColor: '#000',
-                }}
-              />
             </div>
           )}
+        </div>
+      )}
 
-          {/* Reset Button */}
-          <button
-            onClick={handleReset}
-            style={{
-              marginTop: '20px',
-              padding: '10px 20px',
-              backgroundColor: '#666',
-              color: 'white',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-            }}
-          >
-            Upload Another Video
-          </button>
+      {/* Success Result - Your full original UI for results */}
+      {uploadResult && (
+        <div style={{ marginTop: '10px' }}>
+          <div style={{ padding: '15px', backgroundColor: '#e8f5e9', border: '1px solid #4caf50', borderRadius: '5px', textAlign: 'center' }}>
+            <h3 style={{ color: '#2e7d32', marginTop: 0, fontSize: '16px' }}>✅ Upload Successful!</h3>
+            <div style={{ marginTop: '10px', fontSize: '12px', textAlign: 'left' }}>
+              <div style={{ marginBottom: '5px' }}><strong>Public ID:</strong> {uploadResult.public_id}</div>
+              <div style={{ marginBottom: '5px' }}><strong>Size:</strong> {(uploadResult.bytes / 1024 / 1024).toFixed(2)} MB</div>
+              {uploadResult.width && (
+                <div><strong>Resolution:</strong> {uploadResult.width} x {uploadResult.height}</div>
+              )}
+            </div>
+            <button
+              onClick={handleReset}
+              style={{ marginTop: '15px', fontSize: '12px', color: '#0070f3', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Upload another video
+            </button>
+          </div>
+
+          {/* Player for the Cloudinary URL */}
+          <div style={{ marginTop: '15px' }}>
+            <video src={videoUrl} controls style={{ width: '100%', borderRadius: '5px', backgroundColor: '#000' }} />
+          </div>
         </div>
       )}
     </div>

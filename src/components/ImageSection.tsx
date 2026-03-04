@@ -15,19 +15,19 @@ export default function ImageSection({ selectedImage, isAdmin, onImageUpload, on
     <section className="relative w-full px-4 sm:px-6 md:px-8 py-6 sm:py-8 md:py-12 overflow-hidden border-b-2 border-yellow-500">
       {/* Darker Blue Background */}
       <div className="absolute inset-0 bg-blue-700"></div>
-      
+
       {/* Subtle Decorative Elements */}
       <div className="absolute inset-0 opacity-20">
         <div className="absolute top-5 sm:top-10 right-5 sm:right-10 w-32 h-32 sm:w-48 sm:h-48 md:w-64 md:h-64 bg-blue-800 rounded-full blur-3xl"></div>
         <div className="absolute bottom-5 sm:bottom-10 left-5 sm:left-10 w-32 h-32 sm:w-48 sm:h-48 md:w-64 md:h-64 bg-yellow-500 rounded-full blur-3xl opacity-30"></div>
       </div>
-      
+
       {/* Decorative Elements */}
       {/* <div className="absolute inset-0 opacity-10">
         <div className="absolute top-10 right-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
         <div className="absolute bottom-10 left-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
       </div> */}
-      
+
       {/* Banner Image Background */}
       <div className="w-full h-[200px] sm:h-[300px] md:h-[400px] relative">
         <Image

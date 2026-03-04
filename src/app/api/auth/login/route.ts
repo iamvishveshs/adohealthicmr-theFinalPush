@@ -86,18 +86,18 @@ export async function POST(request: NextRequest) {
         } catch (err: any) {
           console.error('Create user by email error:', err);
           // Check if it's a duplicate user error (user was created between check and insert)
-          const isDuplicateError = err?.code === '23505' || 
-                                   err?.message?.includes('duplicate') || 
+          const isDuplicateError = err?.code === '23505' ||
+                                   err?.message?.includes('duplicate') ||
                                    err?.message?.includes('already exists') ||
                                    err?.message?.toLowerCase().includes('user with');
-          
+
           if (isDuplicateError) {
             // User was created by another request, try to get it again
             user = await getUserByEmail(trimmedEmail);
             if (!user) {
-              return NextResponse.json({ 
-                error: 'Account exists', 
-                message: 'An account with this email already exists. Please log in with your password.' 
+              return NextResponse.json({
+                error: 'Account exists',
+                message: 'An account with this email already exists. Please log in with your password.'
               }, { status: 409 });
             }
             // Verify password for the existing user
@@ -109,9 +109,9 @@ export async function POST(request: NextRequest) {
             // Other database or system errors
             const errorMessage = err?.message || 'Unknown error';
             console.error('Unexpected error creating user:', errorMessage);
-            return NextResponse.json({ 
-              error: 'Sign up failed', 
-              message: 'Could not create account. Please try again or contact support if the problem persists.' 
+            return NextResponse.json({
+              error: 'Sign up failed',
+              message: 'Could not create account. Please try again or contact support if the problem persists.'
             }, { status: 500 });
           }
         }

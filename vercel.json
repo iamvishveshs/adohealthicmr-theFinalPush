@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "projectId": "prj_gt6BEjvLJPsPEWo1WflWmeecSbYg",
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",

@@ -17,7 +17,8 @@ import RiskFactorsSection from "../components/RiskFactorsSection";
 import Footer from "../components/Footer";
 import UploadProgressBar from "../components/UploadProgressBar";
 import VideoPlayer from "../components/VideoPlayer";
-import { UploadProgress, uploadVideoDirect } from "../lib/cloudinary-direct-upload";
+import VideoUploader from "./components/VideoUploader";
+import { UploadProgress } from "../lib/cloudinary-direct-upload";
 import { storeVideo, uploadVideoInBackground, processPendingUploads, getPendingUploads, type StoredVideo } from "../lib/video-storage";
 
 interface Question {
@@ -99,6 +100,9 @@ interface Module {
 }
 
 export default function Home() {
+  const [actionLoading, setActionLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
   // Admin authentication state
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
@@ -116,10 +120,10 @@ export default function Home() {
   // Image state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [loginHeading, setLoginHeading] = useState<string>("Login");
-  
+
   // Modules slide panel state
   const [isModulesPanelOpen, setIsModulesPanelOpen] = useState<boolean>(false);
-  
+
   // Confirmation modal state
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
   const [confirmModalData, setConfirmModalData] = useState<{
@@ -142,7 +146,7 @@ export default function Home() {
     moduleId: number;
     questionId?: number;
   } | null>(null);
-  
+
   // Disable body scroll when dropdown is open
   useEffect(() => {
     if (isModulesPanelOpen) {
@@ -152,7 +156,7 @@ export default function Home() {
       // Re-enable scroll on body
       document.body.style.overflow = '';
     }
-    
+
     // Cleanup function to restore scroll when component unmounts
     return () => {
       document.body.style.overflow = '';
@@ -166,7 +170,7 @@ export default function Home() {
     } else {
       document.body.style.overflow = '';
     }
-    
+
     return () => {
       document.body.style.overflow = '';
     };
@@ -179,7 +183,7 @@ export default function Home() {
     } else {
       document.body.style.overflow = '';
     }
-    
+
     return () => {
       document.body.style.overflow = '';
     };
@@ -202,10 +206,12 @@ export default function Home() {
       window.removeEventListener('keydown', handleEscape);
     };
   }, [showConfirmModal]);
-  
+
   // Check authentication status on mount
   useEffect(() => {
     const checkAuth = async () => {
+      // Ensure we start in loading mode
+      setIsAuthLoading(true);
       try {
         const response = await fetch('/api/auth/me', { credentials: 'include' });
         if (response.ok) {
@@ -217,11 +223,12 @@ export default function Home() {
             setUserRole(data.user.role);
             setIsAdmin(data.user.role === 'admin');
           }
-          // If data.success is false, user is not authenticated - this is normal
         }
       } catch (error) {
-        // Only log unexpected errors
         console.error('Error checking auth:', error);
+      } finally {
+        // CRITICAL: Only set to false once the API call is completely finished
+        setIsAuthLoading(false);
       }
     };
     checkAuth();
@@ -525,8 +532,21 @@ export default function Home() {
       setIsCreateLoading(false);
       return;
     }
+
     if (createPassword !== createConfirmPassword) {
       setCreateError("Password and confirm password do not match.");
+      setIsCreateLoading(false);
+      return;
+    }
+
+    // 2. Complexity Rules (Regex)
+    // Min 8 chars, at least 1 uppercase, 1 lowercase, 1 number, and 1 special character
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
+    if (!passwordRegex.test(createPassword)) {
+      setCreateError(
+        "Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character (@$!%*?&)."
+      );
       setIsCreateLoading(false);
       return;
     }
@@ -580,7 +600,7 @@ export default function Home() {
     try {
       const response = await fetch('/api/auth/login-history?limit=100');
       const data = await response.json();
-      
+
       if (response.ok && data.success) {
         setLoginHistory(data.data.logins || []);
       } else {
@@ -596,7 +616,7 @@ export default function Home() {
 
   // Accordion state
   const [openAccordion, setOpenAccordion] = useState<number | null>(null);
-  
+
   // State for module details - track which modules have details open
   const [moduleDetailsOpen, setModuleDetailsOpen] = useState<{ [key: number]: boolean }>({});
   const [moduleView, setModuleView] = useState<{ [key: number]: "videos" | "questions" | null }>({});
@@ -619,7 +639,7 @@ export default function Home() {
             hindi: [],
             activity: [],
           };
-          
+
           videosResponse.data.videos.forEach((v: VideoData) => {
             moduleVideos[v.videoType].push({
               id: v.videoId,
@@ -629,7 +649,7 @@ export default function Home() {
               ...(v.fileUrl && { fileUrl: v.fileUrl }), // Include fileUrl for video playback if available
             });
           });
-          
+
           setVideos(prev => ({
             ...prev,
             [moduleId]: moduleVideos
@@ -648,7 +668,7 @@ export default function Home() {
       }
     });
   }, [selectedVideoType]);
-  
+
   // Videos state for all modules - initialize empty to avoid hydration errors
   const [videos, setVideos] = useState<{
     [moduleId: number]: {
@@ -720,13 +740,13 @@ export default function Home() {
 
   const handleSaveModule = async (moduleId: number) => {
     if (!isAdmin) return; // Only allow saving if admin is logged in
-    
+
     try {
       const response = await updateModule(moduleId, {
         title: editTitle,
         description: editDescription,
       });
-      
+
       if (response.success && response.data?.module) {
         await refetchData();
         showSaveFeedback('success', 'Module updated successfully.', { type: 'module', moduleId });
@@ -737,7 +757,7 @@ export default function Home() {
       console.error('Error saving module:', error);
       showSaveFeedback('error', 'An error occurred while saving the module. Please try again.');
     }
-    
+
     setEditingModule(null);
     setEditTitle("");
     setEditDescription("");
@@ -760,47 +780,47 @@ export default function Home() {
 
   const handleSaveQuestion = async () => {
     if (!isAdmin || !editingQuestion) return;
-    
+
     // Validation
     if (!editQuestionText.trim()) {
       alert('Please enter a question text.');
       return;
     }
-    
+
     if (editQuestionOptions.length < 2) {
       alert('Please add at least 2 answer options.');
       return;
     }
-    
+
     if (editQuestionOptions.some(opt => !opt.trim())) {
       alert('Please fill in all answer options.');
       return;
     }
-    
+
     if (editCorrectAnswer === undefined || editCorrectAnswer === null) {
       alert('Please select the correct answer for this question.');
       return;
     }
-    
+
     const { moduleId, questionId } = editingQuestion;
-    
+    setActionLoading(true); // Start loading
     try {
       const response = await updateQuestion(questionId, moduleId, {
         question: editQuestionText.trim(),
         options: editQuestionOptions.map(opt => opt.trim()),
         correctAnswer: editCorrectAnswer,
       });
-      
+
       if (response.success && response.data?.question) {
         const updatedQuestion = response.data.question;
         const updatedQuestions = (moduleQuestions[moduleId] || []).map(q =>
           q.id === questionId
             ? {
-                id: updatedQuestion.id,
-                question: updatedQuestion.question,
-                options: updatedQuestion.options,
-                correctAnswer: updatedQuestion.correctAnswer,
-              }
+              id: updatedQuestion.id,
+              question: updatedQuestion.question,
+              options: updatedQuestion.options,
+              correctAnswer: updatedQuestion.correctAnswer,
+            }
             : q
         );
 
@@ -808,7 +828,7 @@ export default function Home() {
           ...moduleQuestions,
           [moduleId]: updatedQuestions
         };
-        
+
         setModuleQuestions(updatedModuleQuestions);
         await refetchData();
         showSaveFeedback('success', 'Question updated successfully.', { type: 'question', moduleId, questionId });
@@ -818,8 +838,10 @@ export default function Home() {
     } catch (error) {
       console.error('Error saving question:', error);
       showSaveFeedback('error', 'An error occurred while saving the question. Please try again.');
+    } finally {
+      setActionLoading(false); // Stop loading regardless of success or fail
     }
-    
+
     setEditingQuestion(null);
     setEditQuestionText("");
     setEditQuestionOptions([]);
@@ -847,7 +869,7 @@ export default function Home() {
     if (editQuestionOptions.length > 1) {
       const newOptions = editQuestionOptions.filter((_, i) => i !== index);
       setEditQuestionOptions(newOptions);
-      
+
       // Adjust correct answer index if needed
       if (editCorrectAnswer !== undefined) {
         if (editCorrectAnswer === index) {
@@ -864,11 +886,11 @@ export default function Home() {
   // Add new module function
   const handleAddModule = async () => {
     if (!isAdmin) return;
-    
+
     const newModuleId = Math.max(...modules.map(m => m.id), 0) + 1;
     const colors = ["pink", "blue", "green", "purple", "orange", "indigo", "teal", "red"];
     const newColor = colors[(newModuleId - 1) % colors.length];
-    
+
     const newModuleData: ModuleData = {
       id: newModuleId,
       title: `Module ${newModuleId} Title`,
@@ -879,7 +901,7 @@ export default function Home() {
     try {
       // Create module via API
       const moduleResponse = await createModule(newModuleData);
-      
+
       if (moduleResponse.success && moduleResponse.data?.module) {
         const createdModule = moduleResponse.data.module;
         const newModule: Module = {
@@ -903,7 +925,7 @@ export default function Home() {
 
         const questionPromises = questionsToCreate.map(q => createQuestion(q));
         const questionResults = await Promise.all(questionPromises);
-        
+
         // Initialize questions in state
         const createdQuestions: Question[] = questionResults
           .filter(r => r.success && r.data?.question)
@@ -946,7 +968,7 @@ export default function Home() {
   // Remove module function
   const handleRemoveModule = async (moduleId: number) => {
     if (!isAdmin) return;
-    
+
     // Show custom confirmation modal
     setConfirmModalData({
       title: "Delete Module",
@@ -961,10 +983,11 @@ export default function Home() {
 
   // Perform actual module deletion
   const performModuleDeletion = async (moduleId: number) => {
+    setActionLoading(true);
     try {
       // Delete module via API (this will cascade delete questions and videos if configured)
       const response = await deleteModule(moduleId);
-      
+
       if (response.success) {
         // Remove module from modules array
         const updatedModules = modules.filter(m => m.id !== moduleId);
@@ -1007,6 +1030,9 @@ export default function Home() {
       console.error('Error deleting module:', error);
       showSaveFeedback('error', 'An error occurred while deleting the module. Please try again.');
     }
+    finally {
+      setActionLoading(false);
+    }
   };
 
   const getColorClasses = (color: string) => {
@@ -1031,14 +1057,14 @@ export default function Home() {
         alert("Please select an image file");
         return;
       }
-      
+
       // Check file size (limit to 2MB for images to avoid quota issues)
       const maxImageSize = 2 * 1024 * 1024; // 2MB
       if (file.size > maxImageSize) {
         alert(`Image file is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 2MB. Please compress the image and try again.`);
         return;
       }
-      
+
       // Create preview URL and save to localStorage
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -1076,10 +1102,10 @@ export default function Home() {
 
   const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>, moduleId: number) => {
     if (!isAdmin) return; // Only admin can upload videos
-    
+
     const videoType = selectedVideoType[moduleId];
     if (!videoType) return;
-    
+
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -1100,8 +1126,8 @@ export default function Home() {
       return;
     }
 
-    // Validate file size (5GB max to support 20-minute videos)
-    const maxVideoSize = 5 * 1024 * 1024 * 1024; // 5GB
+    // Validate file size (5GB max)
+    const maxVideoSize = 5 * 1024 * 1024 * 1024;
     if (file.size > maxVideoSize) {
       alert(`Video file is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 5GB.`);
       return;
@@ -1114,180 +1140,123 @@ export default function Home() {
       if (!proceed) return;
     }
 
-    // Initialize upload progress – upload to Cloudinary via proxy route
+    // Initialize upload progress key
     const progressKey = `${moduleId}-${videoType}`;
-    
+    let startTime = performance.now();
+
     try {
-      // Seed initial progress state
-      setUploadProgress(prev => ({
+      const uploadWithProgress = () => {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('moduleId', String(moduleId));
+          formData.append('videoType', videoType);
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const now = performance.now();
+              const durationInSeconds = (now - startTime) / 1000;
+              const percentComplete = Math.round((event.loaded / event.total) * 100);
+
+              // Calculate Speed
+              const bps = event.loaded / durationInSeconds;
+              const mbps = (bps / (1024 * 1024)).toFixed(2);
+
+              setUploadProgress(prev => ({
+                ...prev,
+                [progressKey]: {
+                  stage: 'uploading',
+                  progress: percentComplete,
+                  message: percentComplete < 100 ? `Uploading at ${mbps} MB/s` : 'Processing...',
+                  originalSize: file.size,
+                  uploadedBytes: event.loaded,
+                  totalBytes: event.total,
+                  speed: `${mbps} MB/s`
+                },
+              }));
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(JSON.parse(xhr.responseText));
+            } else {
+              reject(new Error(`Upload failed (${xhr.status})`));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error('Network error.'));
+          xhr.open('POST', '/api/cloudinary-upload');
+          xhr.withCredentials = true;
+          xhr.send(formData);
+        });
+      };
+
+      const data: any = await uploadWithProgress();
+
+      const { fileUrl, previewUrl, fileName: savedFileName, fileSize: savedFileSize, videoId } = data;
+
+      setPendingVideos(prev => ({
         ...prev,
-        [progressKey]: {
-          stage: 'uploading',
-          progress: 0,
-          message: 'Uploading video...',
-          originalSize: file.size,
-        },
+        [moduleId]: {
+          ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
+          [videoType]: [{
+            id: videoId,
+            preview: previewUrl || '/images/video-placeholder.svg',
+            fileName: savedFileName || file.name,
+            fileSize: savedFileSize ?? file.size,
+            fileUrl,
+          }]
+        }
       }));
 
-      // Step 1: Upload to Cloudinary via proxy route
-      const uploadResult = await uploadVideoDirect(file, moduleId, videoType, {
-        onProgress: (progress) => {
-          setUploadProgress(prev => ({
-            ...prev,
-            [progressKey]: progress,
-          }));
-        },
-      });
+      showSaveFeedback('success', 'Video uploaded! Click "Save Video" to finalize.', { type: 'video', moduleId });
 
-      if (!uploadResult.success || !uploadResult.video) {
-        const errorMessage = uploadResult.error || 'Upload failed';
-        showSaveFeedback('error', errorMessage, { type: 'video', moduleId });
-        setUploadProgress(prev => {
-          const updated = { ...prev };
-          delete updated[progressKey];
-          return updated;
-        });
-        return;
-      }
-
-      const videoInfo = uploadResult.video;
-
-      // Step 2: Save video metadata to backend (/api/upload-video)
-      let savedVideo: any | null = null;
-      try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
-
-        const metadataRes = await fetch('/api/upload-video', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            publicId: videoInfo.publicId,
-            url: videoInfo.url,
-            secure_url: videoInfo.secure_url,
-            format: videoInfo.format,
-            duration: videoInfo.duration,
-            bytes: videoInfo.bytes,
-            width: videoInfo.width,
-            height: videoInfo.height,
-            fileName: videoInfo.fileName ?? file.name,
-            fileSize: videoInfo.fileSize ?? file.size,
-            moduleId,
-            videoType,
-          }),
-        });
-
-        if (!metadataRes.ok) {
-          const errData = await metadataRes.json().catch(() => ({}));
-          const message = errData.error || `Failed to save video metadata (${metadataRes.status})`;
-          throw new Error(message);
-        }
-
-        const metadata = await metadataRes.json();
-        savedVideo = metadata.video || null;
-      } catch (metadataError: any) {
-        console.error('Error saving video metadata:', metadataError);
-        const message = metadataError?.message || 'Failed to save video metadata';
-        showSaveFeedback('error', message, { type: 'video', moduleId });
-
-        setUploadProgress(prev => {
-          const updated = { ...prev };
-          delete updated[progressKey];
-          return updated;
-        });
-        return;
-      }
-
-      // Step 3: Update pending videos with Cloudinary URL and thumbnail
-      if (savedVideo) {
-        const fileUrl =
-          savedVideo.fileUrl ||
-          savedVideo.url ||
-          savedVideo.secure_url ||
-          videoInfo.secure_url ||
-          videoInfo.url;
-
-        setPendingVideos(prev => ({
-          ...prev,
-          [moduleId]: {
-            ...(prev[moduleId] || { english: null, punjabi: null, hindi: null, activity: null }),
-            [videoType]: [{
-              id: savedVideo.videoId,
-              preview: savedVideo.preview || '/images/video-placeholder.svg',
-              fileName: savedVideo.fileName || file.name,
-              fileSize: savedVideo.fileSize ?? file.size,
-              fileUrl,
-            }],
-          },
-        }));
-      }
-
-      // Clear upload progress now that everything is done
-      setUploadProgress(prev => {
-        const updated = { ...prev };
-        delete updated[progressKey];
-        return updated;
-      });
-
-      showSaveFeedback(
-        'success',
-        'Video uploaded to Cloudinary! Preview below and click "Save Video" to make it available to all users.',
-        { type: 'video', moduleId }
-      );
     } catch (error: any) {
       console.error('Error uploading video:', error);
 
-      // Clear upload progress on error
-      setUploadProgress(prev => {
-        const updated = { ...prev };
-        delete updated[progressKey];
-        return updated;
-      });
-
-      // Provide user-friendly error messages
       let errorMessage = error.message || 'Unknown error';
-      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
-        errorMessage = 'Authentication failed. Please log in again as an admin.';
-      } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
-        errorMessage = 'Access denied. Admin privileges required.';
-      } else if (errorMessage.includes('Network')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      }
+      if (errorMessage.includes('401')) errorMessage = 'Authentication failed. Log in again.';
+      else if (errorMessage.includes('403')) errorMessage = 'Access denied. Admin required.';
+      else if (errorMessage.includes('Network')) errorMessage = 'Network error. Check connection.';
 
       showSaveFeedback('error', `Failed to upload video: ${errorMessage}`, { type: 'video', moduleId });
     } finally {
-      // Reset input
+      // Cleanup progress state and reset input
+      setUploadProgress(prev => {
+        const next = { ...prev };
+        delete next[progressKey];
+        return next;
+      });
       event.target.value = '';
     }
   };
 
   const handleSaveVideo = async (moduleId: number) => {
     if (!isAdmin) return; // Only admin can save videos
-    
+
     const videoType = selectedVideoType[moduleId];
     if (!videoType) return;
-    
+
     const pendingVideo = pendingVideos[moduleId]?.[videoType];
     if (!pendingVideo || pendingVideo.length === 0) return;
 
     const videoToSave = pendingVideo[0];
-    
+
     // Validate that required fields are present
     if (!videoToSave.fileName || videoToSave.fileSize === undefined) {
       showSaveFeedback('error', 'Video upload is not complete. Please wait for the upload to finish before saving.');
       return;
     }
-    
+
     try {
       // Use videoId from pending (set by local upload) or compute next
       const existingVideos = videos[moduleId]?.[videoType] || [];
       const nextVideoId = typeof videoToSave.id === 'number' && Number.isInteger(videoToSave.id)
         ? videoToSave.id
         : (existingVideos.length > 0 ? Math.max(...existingVideos.map(v => v.id)) + 1 : 1);
-      
+
       // Preview: use existing, or Cloudinary thumbnail, or placeholder for local fileUrl
       let preview = videoToSave.preview;
       if (!preview || preview === '') {
@@ -1311,7 +1280,7 @@ export default function Home() {
           return;
         }
       }
-      
+
       const videoData: VideoData & { publicId?: string } = {
         moduleId,
         videoType: videoType as 'english' | 'punjabi' | 'hindi' | 'activity',
@@ -1322,12 +1291,12 @@ export default function Home() {
         fileUrl: videoToSave.fileUrl || '',
         publicId: videoToSave.publicId,
       };
-      
+
       const response = await createVideo(videoData);
-      
+
       if (response.success && response.data?.video) {
         const createdVideo = response.data.video;
-        
+
         // Update videos state - include fileUrl for playback
         const updatedVideos = {
           ...videos,
@@ -1346,7 +1315,7 @@ export default function Home() {
           }
         };
         setVideos(updatedVideos);
-        
+
         // Clear pending video
         setPendingVideos(prev => ({
           ...prev,
@@ -1367,17 +1336,57 @@ export default function Home() {
     }
   };
 
-  const handleRemoveVideo = async (moduleId: number, id: number) => {
-    if (!isAdmin) return; // Only admin can remove videos
-    
+  const handleDirectUploadSuccess = async (moduleId: number, videoType: string, url: string, publicId: string, bytes: number) => {
+    try {
+      const videoData: VideoData = {
+        moduleId,
+        videoType: videoType as 'english' | 'punjabi' | 'hindi' | 'activity',
+        videoId: Date.now(), // Unique ID
+        preview: url.replace(/\.[^/.]+$/, ".jpg"), // Auto-generated thumbnail
+        fileName: `Video_${moduleId}_${videoType}`,
+        fileSize: bytes,
+        fileUrl: url,
+      };
+
+      const response = await createVideo(videoData);
+
+      if (response.success) {
+        await refetchData(); // Refresh UI to show the new video
+        showSaveFeedback('success', 'Video saved successfully!', { type: 'video', moduleId });
+      }
+    } catch (error) {
+      showSaveFeedback('error', 'Upload successful but failed to save to database.');
+    }
+  };
+
+  const handleRemoveVideo = (moduleId: number, id: number) => {
+    if (!isAdmin) return;
+
     const videoType = selectedVideoType[moduleId];
     if (!videoType) return;
-    
+
+    // Trigger the existing confirmation modal logic
+    setConfirmModalData({
+      title: "Remove Video",
+      message: `Are you sure you want to remove the ${videoType} video? This will permanently delete the video record from the database.`,
+      onConfirm: async () => {
+        setShowConfirmModal(false); // Close modal immediately
+        await performVideoDeletion(moduleId, id, videoType); // Execute actual deletion
+      }
+    });
+
+    setShowConfirmModal(true);
+  };
+
+  // Helper function to handle the actual API call and state update
+  const performVideoDeletion = async (moduleId: number, id: number, videoType: string) => {
+    setActionLoading(true);
     try {
       // Delete video via API
       const response = await deleteVideo(id, moduleId, videoType);
-      
+
       if (response.success) {
+        // Update local videos state
         const updatedVideos = {
           ...videos,
           [moduleId]: {
@@ -1386,6 +1395,8 @@ export default function Home() {
           }
         };
         setVideos(updatedVideos);
+
+        // Refresh data from server to ensure sync
         await refetchData();
         showSaveFeedback('success', 'Video deleted successfully.', { type: 'video', moduleId });
       } else {
@@ -1394,15 +1405,18 @@ export default function Home() {
     } catch (error: any) {
       console.error('Error removing video:', error);
       showSaveFeedback('error', 'An error occurred while deleting the video. Please try again.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
+
   const handleCancelPendingVideo = (moduleId: number) => {
     if (!isAdmin) return; // Only admin can cancel pending videos
-    
+
     const videoType = selectedVideoType[moduleId];
     if (!videoType) return;
-    
+
     setPendingVideos(prev => ({
       ...prev,
       [moduleId]: {
@@ -1412,67 +1426,79 @@ export default function Home() {
     }));
   };
 
-  const handleSubmitAnswers = async (event: React.FormEvent<HTMLFormElement>, moduleId: number) => {
+ const handleSubmitAnswers = async (event: React.FormEvent<HTMLFormElement>, moduleId: number) => {
     event.preventDefault();
-    
+    setActionLoading(true); // Disable the button immediately
+
     // Collect all form answers
     const formData = new FormData(event.currentTarget);
-    const answers: { [key: string]: string } = {};
-    
+    const emailAnswers: { [key: string]: string } = {};
+    const answersToSave: { [questionId: number]: string } = {};
+    const answersArray: Array<{ questionId: number, answer: string }> = [];
+
     const questions = moduleQuestions[moduleId] || [];
+
+    // 1. Gather all answers in one pass
     questions.forEach((q) => {
       const answer = formData.get(`question-${q.id}`);
       if (answer) {
-        answers[`Question ${q.id}`] = answer as string;
+        const answerStr = answer as string;
+        emailAnswers[`Question ${q.id}`] = answerStr;
+        answersToSave[q.id] = answerStr;
+        answersArray.push({
+          questionId: q.id,
+          answer: answerStr,
+        });
       }
     });
 
-    // Format answers for email
+    if (answersArray.length === 0) {
+      alert("Please answer at least one question before submitting.");
+      setActionLoading(false);
+      return;
+    }
+
+    // 2. Format answers for email
     const selectedModule = modules.find(m => m.id === moduleId);
     const emailSubject = `${selectedModule?.title || `Module ${moduleId}`} Pre-Post Questions Answers`;
     let emailBody = `${selectedModule?.title || `Module ${moduleId}`} Pre-Post Questions - Answers\n\n`;
-    
-    Object.entries(answers).forEach(([question, answer]) => {
+
+    Object.entries(emailAnswers).forEach(([question, answer]) => {
       emailBody += `${question}: ${answer}\n`;
     });
 
     emailBody += "\n\nSubmitted via AdoHealth Initiative Website";
 
     try {
-      // 1. Save answers to API first so they show in admin section even if email fails
-      const answersToSave: { [questionId: number]: string } = {};
-      const answerPromises: Promise<any>[] = [];
-      questions.forEach((q) => {
-        const answer = formData.get(`question-${q.id}`);
-        if (answer) {
-          answersToSave[q.id] = answer as string;
-          answerPromises.push(
-            submitAnswer({
-              moduleId,
-              questionId: q.id,
-              answer: answer as string,
-            })
-          );
-        }
-      });
-
+      // 3. Save answers to API using ONE bulk request
       let saveOk = false;
       try {
-        const answerResults = await Promise.all(answerPromises);
-        saveOk = answerResults.every(r => r.success);
+        const response = await fetch('/api/answers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            moduleId,
+            answers: answersArray
+          }),
+        });
+
+        const result = await response.json();
+        saveOk = !!result.success;
+
         if (saveOk) {
+          // Update local state so UI shows "Update & Resubmit"
           setSavedAnswers(prev => ({ ...prev, [moduleId]: answersToSave }));
         }
       } catch (err) {
-        console.error('Error saving answers to API:', err);
+        console.error('Error saving bulk answers to API:', err);
       }
 
       if (!saveOk) {
-        alert('Failed to save answers. Please try again.');
+        alert('Failed to save answers to the database. Please try again.');
         return;
       }
 
-      // 2. Then try to send email (optional; answers already saved for admin)
+      // 4. Then try to send email (optional; answers already saved for admin)
       let emailSent = false;
       try {
         const response = await fetch('/api/send-email', {
@@ -1482,7 +1508,7 @@ export default function Home() {
             to: 'adohealthicmr2025@gmail.com',
             subject: emailSubject,
             body: emailBody,
-            answers,
+            answers: emailAnswers,
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -1499,6 +1525,8 @@ export default function Home() {
     } catch (error) {
       console.error('Error submitting answers:', error);
       alert('An error occurred while submitting your answers. Please try again.');
+    } finally {
+      setActionLoading(false); // Re-enable the button once finished
     }
   };
 
@@ -1507,11 +1535,10 @@ export default function Home() {
       {/* Admin save feedback toast */}
       {saveMessage && (
         <div
-          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[300] px-4 py-3 rounded-lg shadow-lg text-white font-medium max-w-md text-center ${
-            saveMessage.type === "success" ? "bg-green-600" : 
-            saveMessage.type === "error" ? "bg-red-600" : 
-            "bg-blue-600"
-          }`}
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[300] px-4 py-3 rounded-lg shadow-lg text-white font-medium max-w-md text-center ${saveMessage.type === "success" ? "bg-green-600" :
+            saveMessage.type === "error" ? "bg-red-600" :
+              "bg-blue-600"
+            }`}
           role="alert"
         >
           {saveMessage.text}
@@ -1522,6 +1549,7 @@ export default function Home() {
         isUserLoggedIn={isUserLoggedIn}
         isAdmin={isAdmin}
         userName={userName}
+        isLoading={isAuthLoading}
         onLoginClick={() => {
           setShowUserLogin(true);
           setLoginMode('user');
@@ -1574,7 +1602,7 @@ export default function Home() {
                   />
                 </div>
               ) : (
-                <h2 
+                <h2
                   className="text-xl sm:text-2xl font-bold text-yellow-400"
                   onDoubleClick={() => {
                     if (isAdmin) {
@@ -1627,11 +1655,10 @@ export default function Home() {
                     setAdminPassword("");
                     setAdminLoginError("");
                   }}
-                  className={`flex-1 px-3 sm:px-4 py-2 rounded-md font-semibold text-xs sm:text-sm transition-colors ${
-                    loginMode === 'user'
-                      ? 'bg-yellow-500 text-slate-900 shadow-lg'
-                      : 'text-gray-300 hover:text-yellow-400 hover:bg-slate-600'
-                  }`}
+                  className={`flex-1 px-3 sm:px-4 py-2 rounded-md font-semibold text-xs sm:text-sm transition-colors ${loginMode === 'user'
+                    ? 'bg-yellow-500 text-slate-900 shadow-lg'
+                    : 'text-gray-300 hover:text-yellow-400 hover:bg-slate-600'
+                    }`}
                 >
                   User Login
                 </button>
@@ -1647,11 +1674,10 @@ export default function Home() {
                     setCreateConfirmPassword("");
                     setLoginError("");
                   }}
-                  className={`flex-1 px-4 py-2 rounded-md font-semibold text-sm transition-colors ${
-                    loginMode === 'admin'
-                      ? 'bg-yellow-500 text-slate-900 shadow-lg'
-                      : 'text-gray-300 hover:text-yellow-400 hover:bg-slate-600'
-                  }`}
+                  className={`flex-1 px-4 py-2 rounded-md font-semibold text-sm transition-colors ${loginMode === 'admin'
+                    ? 'bg-yellow-500 text-slate-900 shadow-lg'
+                    : 'text-gray-300 hover:text-yellow-400 hover:bg-slate-600'
+                    }`}
                 >
                   Admin Login
                 </button>
@@ -1695,9 +1721,9 @@ export default function Home() {
                       aria-label={showLoginPassword ? "Hide password" : "Show password"}
                     >
                       {showLoginPassword ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                       ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                       )}
                     </button>
                   </div>
@@ -1778,9 +1804,9 @@ export default function Home() {
                       aria-label={showCreatePassword ? "Hide password" : "Show password"}
                     >
                       {showCreatePassword ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                       ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                       )}
                     </button>
                   </div>
@@ -1805,9 +1831,9 @@ export default function Home() {
                       aria-label={showCreateConfirmPassword ? "Hide password" : "Show password"}
                     >
                       {showCreateConfirmPassword ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                       ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                       )}
                     </button>
                   </div>
@@ -1895,9 +1921,9 @@ export default function Home() {
                       aria-label={showAdminPassword ? "Hide password" : "Show password"}
                     >
                       {showAdminPassword ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                       ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                       )}
                     </button>
                   </div>
@@ -1988,11 +2014,10 @@ export default function Home() {
                         <td className="py-2 px-2 text-white">{login.username}</td>
                         <td className="py-2 px-2 text-white">{login.email}</td>
                         <td className="py-2 px-2">
-                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                            login.role === 'admin' 
-                              ? 'bg-yellow-500 text-slate-900' 
-                              : 'bg-slate-600 text-white'
-                          }`}>
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${login.role === 'admin'
+                            ? 'bg-yellow-500 text-slate-900'
+                            : 'bg-slate-600 text-white'
+                            }`}>
                             {login.role}
                           </span>
                         </td>
@@ -2031,7 +2056,7 @@ export default function Home() {
         onImageUpload={handleImageUpload}
         onRemoveImage={handleRemoveImage}
       />
-      
+
       <RiskFactorsSection />
 
       {/* Modules Dropdown - Opens below Modules button */}
@@ -2039,78 +2064,77 @@ export default function Home() {
         <>
           {/* Overlay */}
           {isModulesPanelOpen && (
-            <div 
+            <div
               className="fixed inset-0 bg-black bg-opacity-30 z-[90] transition-opacity duration-300"
               onClick={() => setIsModulesPanelOpen(false)}
             >        </div>
-      )}
+          )}
 
-      {/* Modern Confirmation Modal */}
-      {showConfirmModal && confirmModalData && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn"
-          onClick={() => setShowConfirmModal(false)}
-        >
-          <div 
-            className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 scale-100 animate-slideUp border-2 border-yellow-400"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 rounded-t-2xl flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
+          {/* Modern Confirmation Modal */}
+          {showConfirmModal && confirmModalData && (
+            <div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn"
+              onClick={() => setShowConfirmModal(false)}
+            >
+              <div
+                className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 scale-100 animate-slideUp border-2 border-yellow-400"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 rounded-t-2xl flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-bold text-white">{confirmModalData.title}</h3>
+                </div>
+
+                {/* Modal Body */}
+                <div className="px-6 py-6">
+                  <p className="text-gray-700 text-base leading-relaxed mb-6">
+                    {confirmModalData.message}
+                  </p>
+
+                  {/* Warning Icon */}
+                  <div className="flex items-start gap-3 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg mb-6">
+                    <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <p className="text-sm text-red-800 font-medium">
+                      This action cannot be undone. Please make sure you want to proceed.
+                    </p>
+                  </div>
+
+                  {/* Modal Actions */}
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={() => {
+                        setShowConfirmModal(false);
+                        setConfirmModalData(null);
+                      }}
+                      className="px-6 py-2.5 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-all duration-200 shadow-sm hover:shadow-md"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        confirmModalData.onConfirm();
+                        setConfirmModalData(null);
+                      }}
+                      className="px-6 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-xl font-bold text-white">{confirmModalData.title}</h3>
             </div>
+          )}
 
-            {/* Modal Body */}
-            <div className="px-6 py-6">
-              <p className="text-gray-700 text-base leading-relaxed mb-6">
-                {confirmModalData.message}
-              </p>
-
-              {/* Warning Icon */}
-              <div className="flex items-start gap-3 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg mb-6">
-                <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <p className="text-sm text-red-800 font-medium">
-                  This action cannot be undone. Please make sure you want to proceed.
-                </p>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex gap-3 justify-end">
-                <button
-                  onClick={() => {
-                    setShowConfirmModal(false);
-                    setConfirmModalData(null);
-                  }}
-                  className="px-6 py-2.5 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-all duration-200 shadow-sm hover:shadow-md"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    confirmModalData.onConfirm();
-                    setConfirmModalData(null);
-                  }}
-                  className="px-6 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Dropdown Panel */}
-          <div className={`fixed top-[80px] sm:top-[100px] right-0 left-0 sm:left-auto w-full sm:w-[500px] sm:max-w-[90vw] h-[calc(100vh-80px)] sm:h-[580px] bg-blue-800 shadow-2xl z-[110] transform transition-all duration-300 ease-in-out overflow-hidden rounded-lg sm:rounded-l-lg border-2 border-yellow-500 ${
-            isModulesPanelOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-[-10px] scale-95 pointer-events-none'
-          }`}>
+          {/* Dropdown Panel */}
+          <div className={`fixed top-[60px] sm:top-[80px] right-0 left-0 sm:left-auto w-full sm:w-[500px] sm:max-w-[90vw] h-[calc(100vh-80px)] sm:h-[580px] bg-blue-800 shadow-2xl z-[110] transform transition-all duration-300 ease-in-out overflow-hidden rounded-lg sm:rounded-l-lg border-2 border-yellow-500 ${isModulesPanelOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-[-10px] scale-95 pointer-events-none'
+            }`}>
             {/* Panel Header */}
             <div className="sticky top-0 bg-blue-900 border-b-2 border-yellow-500 px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between z-10 shadow-sm">
               <h2 className="text-base sm:text-lg font-bold text-yellow-400">Interactive E-Modules</h2>
@@ -2124,958 +2148,647 @@ export default function Home() {
                   <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
               </button>
-        </div>
+            </div>
 
             {/* Panel Content */}
             <div className="px-3 sm:px-4 py-3 sm:py-4 pb-10 sm:pb-12 overflow-y-auto h-[calc(100vh-140px)] sm:h-[calc(600px-60px)]">
               <p className="text-black mb-4 text-xs sm:text-sm leading-relaxed bg-white/90 backdrop-blur-sm p-2 sm:p-3 rounded-lg border-2 border-yellow-500 shadow-sm font-medium">
-              Eight comprehensive modules designed for adolescents aged 12-18 combining evidence-based content with purpose-specific for natural relevance.
-            </p>
+                Eight comprehensive modules designed for adolescents aged 12-18 combining evidence-based content with purpose-specific for natural relevance.
+              </p>
 
-          {/* Add Module Button - Only for Admin */}
-          {isAdmin && (
-            <div className="mb-4 flex justify-center">
-              <button
-                onClick={handleAddModule}
+              {/* Add Module Button - Only for Admin */}
+              {isAdmin && (
+                <div className="mb-4 flex justify-center">
+                  <button
+                    onClick={handleAddModule}
                     className="px-3 sm:px-4 py-2 bg-yellow-500 text-slate-900 text-xs sm:text-sm font-semibold rounded-lg hover:bg-yellow-400 border-2 border-yellow-400 transition-all duration-200 shadow-md hover:shadow-lg flex items-center gap-1.5 sm:gap-2"
-              >
-                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Add Module
-              </button>
-            </div>
-          )}
-
-          {/* Editable Modules */}
-              <div id="modules-section">
-          {modules.map((module) => {
-            const colorClasses = getColorClasses(module.color);
-            const isEditing = editingModule === module.id;
-            const isJustSavedModule =
-              lastSavedItem?.moduleId === module.id &&
-              (lastSavedItem?.type === "module" || lastSavedItem?.type === "module-add" || lastSavedItem?.type === "video");
-            
-            return (
-              <Fragment key={module.id}>
-                <div
-                  className={`relative bg-white/90 backdrop-blur-sm rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border-2 mb-3 hover:border-yellow-500 ${
-                    isJustSavedModule ? "ring-2 ring-green-500 border-green-500 shadow-green-500/20" : "border-blue-700"
-                  }`}
-                >
-                <div className="p-2 sm:p-3 flex items-start gap-2 sm:gap-3">
-                  {isJustSavedModule && (
-                    <span className="absolute top-2 right-2 text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded-full shadow-sm">
-                      Saved
-                    </span>
-                  )}
-                  {/* Icon */}
-                  <div className={`flex-shrink-0 w-10 h-10 ${colorClasses.bg.replace('500', '100')} rounded-lg flex items-center justify-center border ${colorClasses.border.replace('300', '200')}`}>
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      className={colorClasses.bg.replace('bg-', 'text-').replace('500', '600')}
-                    >
-                      <path
-                        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                        fill="currentColor"
-                      />
+                  >
+                    <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-800 truncate">
-                        {module.title}
-                      </h3>
-                      {isAdmin && !isEditing && (
-                        <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
-                          <button
-                            onClick={() => handleEditModule(module)}
-                            className="text-slate-700 hover:text-slate-800 transition-colors p-1 hover:bg-slate-400 rounded touch-manipulation"
-                            title="Edit module"
-                          >
-                            <svg
-                              width="14"
-                              height="14"
-                              className="sm:w-4 sm:h-4"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleRemoveModule(module.id)}
-                            className="text-slate-700 hover:text-red-500 transition-colors p-1 hover:bg-slate-400 rounded touch-manipulation"
-                            title="Remove module"
-                          >
-                            <svg
-                              width="14"
-                              height="14"
-                              className="sm:w-4 sm:h-4"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M3 6h18"></path>
-                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                              <line x1="10" y1="11" x2="10" y2="17"></line>
-                              <line x1="14" y1="11" x2="14" y2="17"></line>
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {isEditing ? (
-                      <div className="space-y-2 mb-3">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-800 mb-1">
-                            Title
-                          </label>
-                          <input
-                            type="text"
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border-2 border-yellow-500 rounded focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none bg-white text-gray-800"
-                            placeholder="Enter module title"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-800 mb-1">
-                            Description
-                          </label>
-                          <textarea
-                            value={editDescription}
-                            onChange={(e) => setEditDescription(e.target.value)}
-                            rows={3}
-                            className="w-full px-2 py-1.5 text-sm border-2 border-yellow-500 rounded focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none resize-none bg-white text-gray-800"
-                            placeholder="Enter module description"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleSaveModule(module.id)}
-                            className="px-3 py-1.5 text-sm bg-yellow-500 text-slate-900 font-semibold rounded hover:bg-yellow-400 transition-all shadow-md"
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={handleCancelEdit}
-                            className="px-3 py-1.5 text-sm bg-slate-400 text-gray-800 font-semibold rounded hover:bg-slate-500 transition-all shadow-md"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-gray-700 mb-2 text-xs sm:text-sm leading-relaxed line-clamp-2 font-medium">
-                          {module.description}
-                        </p>
-                      </>
-                    )}
-
-                    {/* View Details Button - For all modules */}
-                    {!isEditing && (
-                      <button
-                        onClick={() => {
-                          setModuleDetailsOpen(prev => ({
-                            ...prev,
-                            [module.id]: !prev[module.id]
-                          }));
-                          if (moduleDetailsOpen[module.id]) {
-                            setModuleView(prev => ({
-                              ...prev,
-                              [module.id]: null
-                            }));
-                          }
-                        }}
-                        className="text-orange-600 hover:text-orange-700 font-semibold text-xs flex items-center gap-1 transition-colors px-2 py-1 bg-orange-50 hover:bg-orange-100 rounded border border-orange-100"
-                      >
-                        {moduleDetailsOpen[module.id] ? "Hide" : "Details"}
-                        <svg
-                          className={`w-3 h-3 transition-transform duration-200 ${
-                            moduleDetailsOpen[module.id] ? "rotate-180" : ""
-                          }`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
+                    Add Module
+                  </button>
                 </div>
-              </div>
+              )}
 
-              {/* Two Buttons - Shown when View Details is clicked for this module */}
-              {moduleDetailsOpen[module.id] && (
-                <>
-                  <div className="grid grid-cols-1 gap-2 mb-3">
-                    {/* Module Videos Button */}
-                    <button
-                      onClick={() => setModuleView(prev => ({
-                        ...prev,
-                        [module.id]: prev[module.id] === "videos" ? null : "videos"
-                      }))}
-                      className={`p-2 ${colorClasses.bg === "bg-pink-500" ? "bg-pink-50" : colorClasses.bg === "bg-blue-500" ? "bg-blue-50" : colorClasses.bg === "bg-green-500" ? "bg-green-50" : colorClasses.bg === "bg-purple-500" ? "bg-purple-50" : colorClasses.bg === "bg-orange-500" ? "bg-orange-50" : colorClasses.bg === "bg-indigo-500" ? "bg-indigo-50" : colorClasses.bg === "bg-teal-500" ? "bg-teal-50" : "bg-red-50"} border ${colorClasses.border} rounded hover:shadow-md transition-all duration-200 text-left`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 ${colorClasses.bg.replace('500', '100')} rounded flex items-center justify-center flex-shrink-0 border ${colorClasses.border.replace('300', '200')}`}>
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            className={colorClasses.bg.replace('bg-', 'text-').replace('500', '600')}
-                          >
-                            <path
-                              d="M8 5v14l11-7z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-bold text-gray-900">Videos</h4>
-                        </div>
-                      </div>
-                    </button>
+              {/* Editable Modules */}
+              <div id="modules-section">
+                {modules.map((module) => {
+                  const colorClasses = getColorClasses(module.color);
+                  const isEditing = editingModule === module.id;
+                  const isJustSavedModule =
+                    lastSavedItem?.moduleId === module.id &&
+                    (lastSavedItem?.type === "module" || lastSavedItem?.type === "module-add" || lastSavedItem?.type === "video");
 
-                    {/* Pre-Post Questions Button */}
-                    <button
-                      onClick={() => setModuleView(prev => ({
-                        ...prev,
-                        [module.id]: prev[module.id] === "questions" ? null : "questions"
-                      }))}
-                      className="p-2 bg-green-50 border border-green-200 rounded hover:border-green-300 hover:shadow-md transition-all duration-200 text-left"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-green-100 rounded flex items-center justify-center flex-shrink-0 border border-green-200">
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="text-green-600"
-                          >
-                            <path
-                              d="M9 11H1l4-4m0 0l4 4m-4-4v12"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              fill="none"
-                            />
-                            <path
-                              d="M15 13h8l-4 4m0 0l-4-4m4 4V5"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              fill="none"
-                            />
-                          </svg>
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-bold text-gray-900">Questions</h4>
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-
-                  {/* Module Videos Section - Shown when Videos button is clicked */}
-                  {moduleView[module.id] === "videos" && (() => {
-                    const moduleVideos = videos[module.id] || { english: [], punjabi: [], hindi: [], activity: [] };
-                    const currentVideoType = selectedVideoType[module.id];
-                    
-                    return (
-                      <div className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-sm font-bold text-gray-900">Videos</h3>
-                          {currentVideoType && (
-                            <button
-                              onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: null }))}
-                              className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                              </svg>
-                              Back to Categories
-                            </button>
+                  return (
+                    <Fragment key={module.id}>
+                      <div
+                        className={`relative bg-white/90 backdrop-blur-sm rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border-2 mb-3 hover:border-yellow-500 ${isJustSavedModule ? "ring-2 ring-green-500 border-green-500 shadow-green-500/20" : "border-blue-700"
+                          }`}
+                      >
+                        <div className="p-2 sm:p-3 flex items-start gap-2 sm:gap-3">
+                          {isJustSavedModule && (
+                            <span className="absolute top-2 right-2 text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded-full shadow-sm">
+                              Saved
+                            </span>
                           )}
+                          {/* Icon */}
+                          <div className={`flex-shrink-0 w-10 h-10 ${colorClasses.bg.replace('500', '100')} rounded-lg flex items-center justify-center border ${colorClasses.border.replace('300', '200')}`}>
+                            <svg
+                              width="20"
+                              height="20"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                              className={colorClasses.bg.replace('bg-', 'text-').replace('500', '600')}
+                            >
+                              <path
+                                d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                                fill="currentColor"
+                              />
+                            </svg>
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <h3 className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                                {module.title}
+                              </h3>
+                              {isAdmin && !isEditing && (
+                                <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                                  <button
+                                    onClick={() => handleEditModule(module)}
+                                    className="text-slate-700 hover:text-slate-800 transition-colors p-1 hover:bg-slate-400 rounded touch-manipulation"
+                                    title="Edit module"
+                                  >
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      className="sm:w-4 sm:h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveModule(module.id)}
+                                    disabled={actionLoading}
+                                    className={`transition-colors p-1 rounded touch-manipulation flex items-center justify-center ${actionLoading
+                                      ? "text-slate-400 cursor-not-allowed bg-slate-200"
+                                      : "text-slate-700 hover:text-red-500 hover:bg-slate-400"
+                                      }`}
+                                    title={actionLoading ? "Processing..." : "Remove module"}
+                                  >
+                                    {actionLoading ? (
+                                      /* Small Spinner for Icon Button */
+                                      <svg className="animate-spin w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                      </svg>
+                                    ) : (
+                                      /* Your original Trash Icon */
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        className="sm:w-4 sm:h-4"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <path d="M3 6h18"></path>
+                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                      </svg>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {isEditing ? (
+                              <div className="space-y-2 mb-3">
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-800 mb-1">
+                                    Title
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editTitle}
+                                    onChange={(e) => setEditTitle(e.target.value)}
+                                    className="w-full px-2 py-1.5 text-sm border-2 border-yellow-500 rounded focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none bg-white text-gray-800"
+                                    placeholder="Enter module title"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-800 mb-1">
+                                    Description
+                                  </label>
+                                  <textarea
+                                    value={editDescription}
+                                    onChange={(e) => setEditDescription(e.target.value)}
+                                    rows={3}
+                                    className="w-full px-2 py-1.5 text-sm border-2 border-yellow-500 rounded focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none resize-none bg-white text-gray-800"
+                                    placeholder="Enter module description"
+                                  />
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleSaveModule(module.id)}
+                                    className="px-3 py-1.5 text-sm bg-yellow-500 text-slate-900 font-semibold rounded hover:bg-yellow-400 transition-all shadow-md"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    className="px-3 py-1.5 text-sm bg-slate-400 text-gray-800 font-semibold rounded hover:bg-slate-500 transition-all shadow-md"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="text-gray-700 mb-2 text-xs sm:text-sm leading-relaxed line-clamp-2 font-medium">
+                                  {module.description}
+                                </p>
+                              </>
+                            )}
+
+                            {/* View Details Button - For all modules */}
+                            {!isEditing && (
+                              <button
+                                onClick={() => {
+                                  setModuleDetailsOpen(prev => ({
+                                    ...prev,
+                                    [module.id]: !prev[module.id]
+                                  }));
+                                  if (moduleDetailsOpen[module.id]) {
+                                    setModuleView(prev => ({
+                                      ...prev,
+                                      [module.id]: null
+                                    }));
+                                  }
+                                }}
+                                className="text-orange-600 hover:text-orange-700 font-semibold text-xs flex items-center gap-1 transition-colors px-2 py-1 bg-orange-50 hover:bg-orange-100 rounded border border-orange-100"
+                              >
+                                {moduleDetailsOpen[module.id] ? "Hide" : "Details"}
+                                <svg
+                                  className={`w-3 h-3 transition-transform duration-200 ${moduleDetailsOpen[module.id] ? "rotate-180" : ""
+                                    }`}
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 9l-7 7-7-7"
+                                  />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
                         </div>
+                      </div>
 
-                        {/* 4 Language/Activity Buttons */}
-                        {!currentVideoType && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                            {/* English Button */}
+                      {/* Two Buttons - Shown when View Details is clicked for this module */}
+                      {moduleDetailsOpen[module.id] && (
+                        <>
+                          <div className="grid grid-cols-1 gap-2 mb-3">
+                            {/* Module Videos Button */}
                             <button
-                              onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: "english" }))}
-                              className="p-6 bg-blue-50 border-2 border-blue-300 rounded-lg hover:border-blue-400 hover:shadow-lg transition-all duration-200 text-left"
+                              onClick={() => setModuleView(prev => ({
+                                ...prev,
+                                [module.id]: prev[module.id] === "videos" ? null : "videos"
+                              }))}
+                              className={`p-2 ${colorClasses.bg === "bg-pink-500" ? "bg-pink-50" : colorClasses.bg === "bg-blue-500" ? "bg-blue-50" : colorClasses.bg === "bg-green-500" ? "bg-green-50" : colorClasses.bg === "bg-purple-500" ? "bg-purple-50" : colorClasses.bg === "bg-orange-500" ? "bg-orange-50" : colorClasses.bg === "bg-indigo-500" ? "bg-indigo-50" : colorClasses.bg === "bg-teal-500" ? "bg-teal-50" : "bg-red-50"} border ${colorClasses.border} rounded hover:shadow-md transition-all duration-200 text-left`}
                             >
-                              <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                                  <span className="text-white font-bold text-lg">EN</span>
-                                </div>
-                                <div>
-                                  <h4 className="text-lg font-bold text-gray-900 mb-1">English</h4>
-                                  <p className="text-sm text-gray-600">{moduleVideos.english.length} / 1 video</p>
-                                </div>
-                              </div>
-                            </button>
-
-                            {/* Punjabi Button */}
-                            <button
-                              onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: "punjabi" }))}
-                              className="p-6 bg-orange-50 border-2 border-orange-300 rounded-lg hover:border-orange-400 hover:shadow-lg transition-all duration-200 text-left"
-                            >
-                              <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-orange-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                                  <span className="text-white font-bold text-lg">PA</span>
-                                </div>
-                                <div>
-                                  <h4 className="text-lg font-bold text-gray-900 mb-1">Punjabi</h4>
-                                  <p className="text-sm text-gray-600">{moduleVideos.punjabi.length} / 1 video</p>
-                                </div>
-                              </div>
-                            </button>
-
-                            {/* Hindi Button */}
-                            <button
-                              onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: "hindi" }))}
-                              className="p-6 bg-green-50 border-2 border-green-300 rounded-lg hover:border-green-400 hover:shadow-lg transition-all duration-200 text-left"
-                            >
-                              <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                                  <span className="text-white font-bold text-lg">HI</span>
-                                </div>
-                                <div>
-                                  <h4 className="text-lg font-bold text-gray-900 mb-1">Hindi</h4>
-                                  <p className="text-sm text-gray-600">{moduleVideos.hindi.length} / 1 video</p>
-                                </div>
-                              </div>
-                            </button>
-
-                            {/* Activity Video Button */}
-                            <button
-                              onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: "activity" }))}
-                              className="p-6 bg-purple-50 border-2 border-purple-300 rounded-lg hover:border-purple-400 hover:shadow-lg transition-all duration-200 text-left"
-                            >
-                              <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
-                                    <path d="M14.751 9c.906 0 1.15.756 1.15 1.089v5.912c0 .333-.244 1.089-1.15 1.089H9.249c-.906 0-1.15-.756-1.15-1.089v-5.912c0-.333.244-1.089 1.15-1.089h5.502z" fill="currentColor"/>
+                              <div className="flex items-center gap-2">
+                                <div className={`w-8 h-8 ${colorClasses.bg.replace('500', '100')} rounded flex items-center justify-center flex-shrink-0 border ${colorClasses.border.replace('300', '200')}`}>
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className={colorClasses.bg.replace('bg-', 'text-').replace('500', '600')}
+                                  >
+                                    <path
+                                      d="M8 5v14l11-7z"
+                                      fill="currentColor"
+                                    />
                                   </svg>
                                 </div>
                                 <div>
-                                  <h4 className="text-lg font-bold text-gray-900 mb-1">Activity Video</h4>
-                                  <p className="text-sm text-gray-600">{moduleVideos.activity.length} / 1 video</p>
+                                  <h4 className="text-xs font-bold text-gray-900">Videos</h4>
+                                </div>
+                              </div>
+                            </button>
+
+                            {/* Pre-Post Questions Button */}
+                            <button
+                              onClick={() => setModuleView(prev => ({
+                                ...prev,
+                                [module.id]: prev[module.id] === "questions" ? null : "questions"
+                              }))}
+                              className="p-2 bg-green-50 border border-green-200 rounded hover:border-green-300 hover:shadow-md transition-all duration-200 text-left"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-green-100 rounded flex items-center justify-center flex-shrink-0 border border-green-200">
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="text-green-600"
+                                  >
+                                    <path
+                                      d="M9 11H1l4-4m0 0l4 4m-4-4v12"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      fill="none"
+                                    />
+                                    <path
+                                      d="M15 13h8l-4 4m0 0l-4-4m4 4V5"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      fill="none"
+                                    />
+                                  </svg>
+                                </div>
+                                <div>
+                                  <h4 className="text-xs font-bold text-gray-900">Questions</h4>
                                 </div>
                               </div>
                             </button>
                           </div>
-                        )}
 
-                        {/* Video Upload Area - Shown when a type is selected */}
-                        {currentVideoType && (() => {
-                          const savedVideoList = moduleVideos[currentVideoType] || [];
-                          const pendingVideoList = pendingVideos[module.id]?.[currentVideoType] || null;
-                          const hasSavedVideo = savedVideoList.length > 0;
-                          const hasPendingVideo = pendingVideoList && pendingVideoList.length > 0;
-                          const displayVideo = hasSavedVideo ? savedVideoList : (hasPendingVideo ? pendingVideoList : null);
-                          const progressKey = `${module.id}-${currentVideoType}`;
-                          const currentProgress = uploadProgress[progressKey];
-                          
-                          return (
-                            <>
-                              <div className="mb-6">
-                                <h4 className="text-xl font-bold text-gray-900 mb-2 capitalize">
-                                  {currentVideoType === "activity" ? "Activity" : currentVideoType} Videos
-                                </h4>
-                                <div className="flex items-center justify-between mb-4">
-                                  <p className="text-sm text-gray-600">
-                                    {isAdmin 
-                                      ? `Upload videos for ${currentVideoType === "activity" ? "activities" : `the ${currentVideoType} language`}`
-                                      : `View ${currentVideoType === "activity" ? "activity" : currentVideoType} videos`
-                                    }
-                                  </p>
-                                  <span className="text-sm text-gray-500">
-                                    {hasSavedVideo ? "1 / 1 video saved" : hasPendingVideo ? "Pending save" : "No video"}
-                                  </span>
-                                </div>
-                              </div>
+                          {/* Module Videos Section - Shown when Videos button is clicked */}
+                          {moduleView[module.id] === "videos" && (() => {
+                            const moduleVideos = videos[module.id] || { english: [], punjabi: [], hindi: [], activity: [] };
+                            const currentVideoType = selectedVideoType[module.id];
 
-                              {/* Video Upload Area - Only for Admin */}
-                              {isAdmin && !hasSavedVideo && !hasPendingVideo && (
-                                <div className="mb-6">
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Upload Video <span className="text-red-500">*</span>
-                                  </label>
-                                  <label
-                                    htmlFor={`video-upload-${module.id}-${currentVideoType}`}
-                                    className="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
-                                  >
-                                    <input
-                                      id={`video-upload-${module.id}-${currentVideoType}`}
-                                      type="file"
-                                      accept="video/*"
-                                      onChange={(e) => handleVideoUpload(e, module.id)}
-                                      className="hidden"
-                                    />
-                                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                      <svg
-                                        className="w-12 h-12 mb-4 text-gray-400"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                        />
+                            return (
+                              <div className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h3 className="text-sm font-bold text-gray-900">Videos</h3>
+                                  {currentVideoType && (
+                                    <button
+                                      onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: null }))}
+                                      className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                                       </svg>
-                                      <p className="mb-2 text-sm text-gray-500">
-                                        <span className="font-semibold">Click to upload</span> or drag and drop
-                                      </p>
-                                      <p className="text-xs text-gray-500">MP4, AVI, MOV (MAX. 5GB each)</p>
-                                    </div>
-                                  </label>
-                                  
-                                  {/* Upload Progress Bar - Shows during upload */}
-                                  {currentProgress && (
-                                    <div className="mt-4">
-                                      <UploadProgressBar
-                                        progress={currentProgress.progress}
-                                        message={currentProgress.message}
-                                        stage={currentProgress.stage}
-                                        originalSize={currentProgress.originalSize}
-                                        compressedSize={currentProgress.compressedSize}
-                                        uploadedBytes={currentProgress.uploadedBytes}
-                                        totalBytes={currentProgress.totalBytes}
-                                      />
-                                    </div>
+                                      Back to Categories
+                                    </button>
                                   )}
                                 </div>
-                              )}
 
-                              {/* Pending Video Display with Save Button - Only for Admin */}
-                              {isAdmin && hasPendingVideo && !hasSavedVideo && displayVideo && displayVideo.length > 0 && (() => {
-                                const pendingVideo = displayVideo[0];
-                                
-                                // Source: local path or Cloudinary URL (never blob URLs)
-                                const pendingVideoSrc = pendingVideo.fileUrl || null;
-                                const pendingVideoPoster = pendingVideo.preview && (
-                                  pendingVideo.preview.startsWith('/') ||
-                                  (pendingVideo.preview.startsWith('https://') && !pendingVideo.preview.includes('/video/upload/'))
-                                ) ? pendingVideo.preview : undefined;
-                                
-                                console.log('[Video Display] Pending video:', {
-                                  hasFileUrl: !!pendingVideo.fileUrl,
-                                  fileUrl: pendingVideo.fileUrl,
-                                  preview: pendingVideo.preview,
-                                  videoSrc: pendingVideoSrc,
-                                  poster: pendingVideoPoster,
-                                });
-                                
-                                return (
-                                  <div className="relative mb-6">
-                                    <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4 mb-4">
-                                      <p className="text-sm text-green-800 font-medium mb-1">
-                                        ✅ Video uploaded successfully!
-                                      </p>
-                                      <p className="text-xs text-green-700">
-                                        Preview your video below. Click &quot;Save Video&quot; to make it available to all users.
-                                      </p>
-                                    </div>
-                                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                      <div className="relative mb-3">
-                                        {pendingVideoSrc ? (
-                                          <VideoPlayer
-                                            url={pendingVideoSrc}
-                                            poster={pendingVideoPoster}
-                                            className="rounded-lg border border-gray-300"
-                                            onError={(error) => {
-                                              console.error('[Video Display] Pending video playback error:', error);
-                                            }}
-                                          />
-                                        ) : (
-                                          <div className="relative aspect-video bg-gray-100 rounded-lg border border-gray-300 flex items-center justify-center">
-                                            <div className="text-center p-4">
-                                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
-                                              <p className="text-gray-500 text-sm">Processing video...</p>
-                                              <p className="text-gray-400 text-xs mt-1">Video URL will be available shortly</p>
-                                            </div>
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="p-3 bg-white rounded-lg">
-                                        <p className="text-sm font-semibold text-gray-900 mb-1">
-                                          {currentVideoType === "activity" ? "Activity" : currentVideoType.charAt(0).toUpperCase() + currentVideoType.slice(1)} Video (Preview)
-                                        </p>
-                                        <p className="text-xs text-gray-600 truncate" title={pendingVideo.fileName}>
-                                          📹 {pendingVideo.fileName}
-                                        </p>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                          📦 Size: {(pendingVideo.fileSize / 1024 / 1024).toFixed(2)} MB
-                                        </p>
-                                        {!pendingVideoSrc && (
-                                          <p className="text-xs text-yellow-600 mt-2">
-                                            ⚠️ Video URL is being processed. Please wait...
-                                          </p>
-                                        )}
-                                        <div className="mt-4 flex gap-3">
-                                          <button
-                                            onClick={() => handleSaveVideo(module.id)}
-                                            className="flex-1 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-md"
-                                          >
-                                            Save Video
-                                          </button>
-                                          <button
-                                            onClick={() => handleCancelPendingVideo(module.id)}
-                                            className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition-colors"
-                                          >
-                                            Cancel
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Saved Video Display - Visible to all users */}
-                              {hasSavedVideo && displayVideo && displayVideo.length > 0 && (() => {
-                                const video = displayVideo[0];
-                                
-                                // Video source: local path (/uploads/videos/...) or Cloudinary URL
-                                let videoSrc = video.fileUrl || null;
-                                // If fileUrl missing, try to use preview if it's already a video URL
-                                if (!videoSrc && video.preview) {
-                                  // Check if preview is already a Cloudinary video URL (not a thumbnail)
-                                  if (video.preview.includes('res.cloudinary.com') && 
-                                      video.preview.includes('/video/upload/') &&
-                                      !video.preview.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i) &&
-                                      !video.preview.includes('/w_') &&
-                                      !video.preview.includes('/h_') &&
-                                      !video.preview.includes('/c_') &&
-                                      !video.preview.includes('/f_jpg')) {
-                                    // Preview is already a video URL, use it directly (but ensure optimizations are applied)
-                                    let optimizedPreview = video.preview;
-                                    if (!optimizedPreview.includes('f_mp4')) {
-                                      // Add video optimizations if not already present
-                                      optimizedPreview = optimizedPreview.replace(
-                                        /\/video\/upload\/([^\/]*)\//,
-                                        '/video/upload/$1,f_mp4,f_auto,q_auto/'
-                                      );
-                                    }
-                                    videoSrc = optimizedPreview;
-                                    console.log('[Video Display] Using preview as video URL:', videoSrc);
-                                  }
-                                }
-                                
-                                // If still no video URL and preview is a Cloudinary thumbnail, extract public_id and construct video URL
-                                if (!videoSrc && video.preview && video.preview.includes('res.cloudinary.com')) {
-                                  try {
-                                    // Extract public_id from thumbnail URL
-                                    // Format: https://res.cloudinary.com/{cloud_name}/video/upload/{transformations}/{public_id}.jpg
-                                    // The public_id can contain folder paths, so we extract everything after transformations and before the file extension
-                                    
-                                    const cloudName = video.preview.match(/res\.cloudinary\.com\/([^\/]+)/)?.[1] || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'adohealth';
-                                    
-                                    // Match: /video/upload/{transformations}/{public_id}.{ext}
-                                    // Transformations are typically in one segment (e.g., "w_640,h_360,c_fill,f_jpg")
-                                    // Public_id can span multiple segments if it's in a folder structure
-                                    const match = video.preview.match(/\/video\/upload\/([^\/]+)\/(.+?)\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i);
-                                    
-                                    if (match && match[2]) {
-                                      const publicId = match[2];
-                                      // Verify the extracted public_id doesn't contain transformation patterns
-                                      // (in case the regex matched incorrectly)
-                                      if (!publicId.match(/^(w_|h_|c_|f_|q_|ar_|dpr_)/)) {
-                                        videoSrc = `https://res.cloudinary.com/${cloudName}/video/upload/f_mp4,f_auto,q_auto/${publicId}`;
-                                        console.log('[Video Display] Constructed video URL from preview:', {
-                                          preview: video.preview,
-                                          publicId,
-                                          constructedUrl: videoSrc,
-                                        });
-                                      }
-                                    }
-                                  } catch (error) {
-                                    console.error('[Video Display] Error extracting public_id from preview:', error);
-                                  }
-                                }
-                                
-                                // Poster: Cloudinary image URL or local placeholder
-                                const videoPoster = video.preview && (
-                                  (video.preview.startsWith('https://res.cloudinary.com') && !video.preview.includes('/video/upload/'))
-                                  || video.preview.startsWith('/')
-                                ) ? video.preview : undefined;
-                                
-                                // Log video data for debugging
-                                console.log('[Video Display] Saved video:', { 
-                                  hasFileUrl: !!video.fileUrl, 
-                                  fileUrl: video.fileUrl, 
-                                  preview: video.preview, 
-                                  videoSrc,
-                                  videoPoster,
-                                  fileName: video.fileName,
-                                });
-                                
-                                if (!videoSrc) {
-                                  return (
-                                    <div className="relative">
-                                      <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                        <div className="p-6 text-center">
-                                          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
-                                            <p className="text-sm text-blue-800 font-medium mb-2">
-                                              📹 Video metadata found
-                                            </p>
-                                            <p className="text-xs text-blue-600 mb-2">
-                                              File: {video.fileName}
-                                            </p>
-                                            <p className="text-xs text-blue-600">
-                                              Size: {(video.fileSize / 1024 / 1024).toFixed(2)} MB
-                                            </p>
-                                          </div>
-                                          <p className="text-sm text-gray-600 mb-2">
-                                            Video was saved but video URL is not available.
-                                          </p>
-                                          {video.preview && video.preview.includes('res.cloudinary.com') ? (
-                                            <p className="text-xs text-blue-600 mb-4">
-                                              Attempting to load video from Cloudinary...
-                                            </p>
-                                          ) : (
-                                            <p className="text-xs text-gray-500 mb-4">
-                                              {isAdmin ? 'Please remove and re-upload the video to view it.' : 'Please contact an administrator.'}
-                                            </p>
-                                          )}
-                                          {isAdmin && (
-                                            <div className="flex gap-2 justify-center">
-                                              <button
-                                                onClick={async () => {
-                                                  // Try to refresh the video data
-                                                  console.log('[Video Display] Refreshing video data for module:', module.id);
-                                                  await refetchData();
-                                                }}
-                                                className="px-4 py-2 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition-colors"
-                                              >
-                                                Refresh
-                                              </button>
-                                              <button
-                                                onClick={() => handleRemoveVideo(module.id, video.id)}
-                                                className="px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors"
-                                              >
-                                                Remove Video
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                }
-                                
-                                return (
-                                  <div className="relative">
-                                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                      <div className="relative mb-3">
-                                        <VideoPlayer
-                                          url={videoSrc}
-                                          poster={videoPoster}
-                                          className="rounded-lg border border-gray-300"
-                                          onError={(error) => {
-                                            console.error('Video player error:', error);
-                                            if (process.env.NODE_ENV === 'development') {
-                                              console.error('Video data:', { video, videoSrc, videoPoster });
-                                            }
-                                          }}
-                                        />
-                                        {isAdmin && (
-                                          <button
-                                            onClick={() => handleRemoveVideo(module.id, video.id)}
-                                            className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors shadow-lg text-sm font-medium z-20"
-                                          >
-                                            Remove
-                                          </button>
-                                        )}
-                                      </div>
-                                      <div className="p-3 bg-white rounded-lg">
-                                        <p className="text-sm font-semibold text-gray-900 mb-1">
-                                          {currentVideoType === "activity" ? "Activity" : currentVideoType.charAt(0).toUpperCase() + currentVideoType.slice(1)} Video
-                                        </p>
-                                        <p className="text-xs text-gray-600 truncate">
-                                          {video.fileName}
-                                        </p>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                          {(video.fileSize / 1024 / 1024).toFixed(2)} MB
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* No Video Message */}
-                              {!hasSavedVideo && !hasPendingVideo && (
-                                <div className="text-center py-12 text-gray-500">
-                                  <p>{isAdmin ? "No videos uploaded yet. Click the upload area above to add videos." : "No videos available yet."}</p>
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Module Questions Form - Shown when Pre-Post Questions button is clicked */}
-                  {moduleView[module.id] === "questions" && (
-                    <form className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3" onSubmit={(e) => handleSubmitAnswers(e, module.id)}>
-                      <div className="space-y-3">
-                        {(moduleQuestions[module.id] || []).map((q) => {
-                          const isEditing = editingQuestion?.moduleId === module.id && editingQuestion?.questionId === q.id;
-                          const isJustSavedQuestion =
-                            lastSavedItem?.type === "question" &&
-                            lastSavedItem.moduleId === module.id &&
-                            lastSavedItem.questionId === q.id;
-                          
-                          return (
-                            <fieldset
-                              key={q.id}
-                              className={`border rounded-lg p-4 hover:border-pink-300 transition-colors relative ${
-                                isJustSavedQuestion ? "ring-2 ring-green-500 border-green-500 bg-green-50/50" : "border-gray-200"
-                              }`}
-                            >
-                              {isJustSavedQuestion && (
-                                <span className="absolute top-4 right-4 text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded-full shadow-sm">
-                                  Saved
-                                </span>
-                              )}
-                              {isAdmin && !isEditing && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditQuestion(module.id, q)}
-                                  className={`absolute top-4 p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 ${isJustSavedQuestion ? "right-20" : "right-4"}`}
-                                  title="Edit Question"
-                                >
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                  </svg>
-                                </button>
-                              )}
-                              
-                              <legend className="px-3 text-sm font-bold text-gray-900">
-                                Question {q.id} <span className="text-red-500">*</span>
-                              </legend>
-                              
-                              {isEditing ? (
-                                <div className="mt-4 space-y-4">
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Question Text
-                                    </label>
-                                    <textarea
-                                      value={editQuestionText}
-                                      onChange={(e) => setEditQuestionText(e.target.value)}
-                                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                      rows={3}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Answer Options
-                                    </label>
-                                    <div className="space-y-2">
-                                      {editQuestionOptions.map((option, index) => (
-                                        <div key={index} className="flex gap-2">
-                                          <input
-                                            type="text"
-                                            value={option}
-                                            onChange={(e) => handleEditQuestionOption(index, e.target.value)}
-                                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                            placeholder={`Option ${index + 1}`}
-                                          />
-                                          {editQuestionOptions.length > 1 && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleRemoveQuestionOption(index)}
-                                              className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 transition-all duration-200 text-sm font-medium"
-                                            >
-                                              Remove
-                                            </button>
-                                          )}
-                                        </div>
-                                      ))}
+                                {/* Language Selection Grid */}
+                                {!currentVideoType && (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    {["english", "punjabi", "hindi", "activity"].map((type) => (
                                       <button
-                                        type="button"
-                                        onClick={handleAddQuestionOption}
-                                        className="px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 border border-green-200 transition-all duration-200 text-sm font-medium"
+                                        key={type}
+                                        onClick={() => setSelectedVideoType(prev => ({ ...prev, [module.id]: type as any }))}
+                                        className="p-4 bg-blue-50 border-2 border-blue-200 rounded-lg hover:border-blue-400 transition-all text-left"
                                       >
-                                        Add Option
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-10 h-10 bg-blue-500 rounded flex items-center justify-center flex-shrink-0">
+                                            <span className="text-white font-bold text-xs uppercase">{type.slice(0, 2)}</span>
+                                          </div>
+                                          <div>
+                                            <h4 className="text-sm font-bold text-gray-900 capitalize">{type}</h4>
+                                            <p className="text-[10px] text-gray-500">
+                                              {moduleVideos[type as keyof typeof moduleVideos].length >= 1 ? "1 / 1 Video" : "No video"}
+                                            </p>
+                                          </div>
+                                        </div>
                                       </button>
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Correct Answer <span className="text-red-500">*</span>
-                                    </label>
-                                    <p className="text-xs text-gray-500 mb-3">
-                                      Select which option is the correct answer for this question
-                                    </p>
-                                    <div className="space-y-2">
-                                      {editQuestionOptions.map((option, index) => (
-                                        <label
-                                          key={index}
-                                          className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
-                                            editCorrectAnswer === index
-                                              ? 'border-green-500 bg-green-50'
-                                              : 'border-gray-200 hover:border-gray-300'
-                                          }`}
-                                        >
-                                          <input
-                                            type="radio"
-                                            name={`correct-answer-${editingQuestion?.moduleId}-${editingQuestion?.questionId}`}
-                                            checked={editCorrectAnswer === index}
-                                            onChange={() => setEditCorrectAnswer(index)}
-                                            className="w-5 h-5 text-green-600 border-gray-300 focus:ring-green-500 focus:ring-2 cursor-pointer"
-                                          />
-                                          <span className="text-gray-700 font-medium text-sm flex-1">
-                                            Option {index + 1}: {option || `(Empty option ${index + 1})`}
-                                          </span>
-                                          {editCorrectAnswer === index && (
-                                            <span className="text-green-600 font-semibold text-sm">✓ Correct</span>
-                                          )}
-                                        </label>
-                                      ))}
-                                      {editQuestionOptions.length === 0 && (
-                                        <p className="text-sm text-gray-500 italic">
-                                          Please add at least one option before selecting the correct answer.
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="flex gap-3 pt-2">
-                                    <button
-                                      type="button"
-                                      onClick={handleSaveQuestion}
-                                      className="px-6 py-2.5 bg-blue-50 text-blue-600 font-semibold rounded-lg hover:bg-blue-100 border border-blue-200 transition-all duration-200 shadow-sm hover:shadow-md"
-                                    >
-                                      Save Question
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={handleCancelEditQuestion}
-                                      className="px-6 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 border border-gray-200 transition-all duration-200"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="mt-4 mb-6">
-                                    <label className="block text-sm font-semibold text-gray-900 mb-2">
-                                      {q.question}
-                                    </label>
-                                    <p className="text-xs text-gray-500">
-                                      Please select one answer from the options below
-                                    </p>
-                                  </div>
-
-                                  {/* Radio Options */}
-                                  <div className="space-y-3">
-                                    {q.options.map((option, index) => (
-                                      <label
-                                        key={index}
-                                        className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-pink-400 hover:bg-pink-50 cursor-pointer transition-all duration-200"
-                                      >
-                                        <input
-                                          type="radio"
-                                          name={`question-${q.id}`}
-                                          value={option}
-                                          required
-                                          defaultChecked={savedAnswers[module.id]?.[q.id] === option}
-                                          className="w-5 h-5 text-pink-600 border-gray-300 focus:ring-pink-500 focus:ring-2 cursor-pointer"
-                                        />
-                                        <span className="text-gray-700 font-medium text-sm flex-1">{option}</span>
-                                      </label>
                                     ))}
                                   </div>
-                                </>
-                              )}
-                            </fieldset>
-                          );
-                        })}
-                      </div>
+                                )}
 
-                      {/* Form Actions */}
-                      <div className="mt-10 pt-6 border-t border-gray-200 flex flex-col sm:flex-row gap-4 justify-between items-center">
-                        <p className="text-sm text-gray-500">
-                          <span className="text-red-500">*</span> Required fields
-                          {savedAnswers[module.id] && Object.keys(savedAnswers[module.id]).length > 0 && (
-                            <span className="ml-2 text-green-600 font-medium">• Answers saved - you can edit and resubmit</span>
+                                {/* Video Content Area */}
+                                {currentVideoType && (() => {
+                                  const vType = currentVideoType as keyof typeof moduleVideos;
+                                  // Check if a video is already saved in this specific category
+                                  const savedVideo = moduleVideos[vType]?.[0];
+
+                                  return (
+                                    <div className="mt-2">
+                                      <h4 className="text-sm font-bold text-gray-800 mb-3 capitalize">{currentVideoType} Category</h4>
+
+                                      {savedVideo ? (
+                                        /* ONE VIDEO LIMIT: If video exists, show Player and Remove Button */
+                                        <div className="relative group border rounded-lg overflow-hidden">
+                                          <VideoPlayer url={savedVideo.fileUrl} className="w-full aspect-video" />
+                                          {isAdmin && (
+                                            <button
+                                              onClick={() => handleRemoveVideo(module.id, savedVideo.id)}
+                                              className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1.5 rounded shadow-lg text-[10px] font-bold hover:bg-red-700 transition-colors"
+                                            >
+                                              ✕ Remove Video
+                                            </button>
+                                          )}
+                                          <div className="p-2 bg-gray-50 border-t">
+                                            <p className="text-[10px] text-gray-600 truncate">File: {savedVideo.fileName}</p>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        /* IF NO VIDEO: Only Admin sees the High-Speed Uploader */
+                                        isAdmin ? (
+                                          <div className="border-2 border-dashed border-blue-200 rounded-lg p-2 bg-slate-50">
+                                            <VideoUploader
+                                              moduleId={module.id}
+                                              videoType={vType}
+                                              onUploadSuccess={(url, pubId, b) => handleDirectUploadSuccess(module.id, vType, url, pubId, b)}
+                                            />
+                                            <p className="text-[10px] text-center text-gray-400 mt-2">Max 1 video per category. Direct upload enabled.</p>
+                                          </div>
+                                        ) : (
+                                          <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-100">
+                                            <p className="text-xs text-gray-400 italic">This video hasn't been uploaded yet.</p>
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Module Questions Form - Shown when Pre-Post Questions button is clicked */}
+                          {moduleView[module.id] === "questions" && (
+                            <form className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3" onSubmit={(e) => handleSubmitAnswers(e, module.id)}>
+                              <div className="space-y-3">
+                                {(moduleQuestions[module.id] || []).map((q) => {
+                                  const isEditing = editingQuestion?.moduleId === module.id && editingQuestion?.questionId === q.id;
+                                  const isJustSavedQuestion =
+                                    lastSavedItem?.type === "question" &&
+                                    lastSavedItem.moduleId === module.id &&
+                                    lastSavedItem.questionId === q.id;
+
+                                  return (
+                                    <fieldset
+                                      key={q.id}
+                                      className={`border rounded-lg p-4 hover:border-pink-300 transition-colors relative ${isJustSavedQuestion ? "ring-2 ring-green-500 border-green-500 bg-green-50/50" : "border-gray-200"
+                                        }`}
+                                    >
+                                      {isJustSavedQuestion && (
+                                        <span className="absolute top-4 right-4 text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded-full shadow-sm">
+                                          Saved
+                                        </span>
+                                      )}
+                                      {isAdmin && !isEditing && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleEditQuestion(module.id, q)}
+                                          className={`absolute top-4 p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 ${isJustSavedQuestion ? "right-20" : "right-4"}`}
+                                          title="Edit Question"
+                                        >
+                                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                          </svg>
+                                        </button>
+                                      )}
+
+                                      <legend className="px-3 text-sm font-bold text-gray-900">
+                                        Question {q.id} <span className="text-red-500">*</span>
+                                      </legend>
+
+                                      {isEditing ? (
+                                        <div className="mt-4 space-y-4">
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                              Question Text
+                                            </label>
+                                            <textarea
+                                              value={editQuestionText}
+                                              onChange={(e) => setEditQuestionText(e.target.value)}
+                                              className="w-full px-4 py-2 border text-gray-700 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                              rows={3}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                              Answer Options
+                                            </label>
+                                            <div className="space-y-2">
+                                              {editQuestionOptions.map((option, index) => (
+                                                <div key={index} className="flex gap-2">
+                                                  <input
+                                                    type="text"
+                                                    value={option}
+                                                    onChange={(e) => handleEditQuestionOption(index, e.target.value)}
+                                                    className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                    placeholder={`Option ${index + 1}`}
+                                                  />
+                                                  {editQuestionOptions.length > 1 && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => handleRemoveQuestionOption(index)}
+                                                      className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 transition-all duration-200 text-sm font-medium"
+                                                    >
+                                                      Remove
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              ))}
+                                              <button
+                                                type="button"
+                                                onClick={handleAddQuestionOption}
+                                                className="px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 border border-green-200 transition-all duration-200 text-sm font-medium"
+                                              >
+                                                Add Option
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                              Correct Answer <span className="text-red-500">*</span>
+                                            </label>
+                                            <p className="text-xs text-gray-500 mb-3">
+                                              Select which option is the correct answer for this question
+                                            </p>
+                                            <div className="space-y-2">
+                                              {editQuestionOptions.map((option, index) => (
+                                                <label
+                                                  key={index}
+                                                  className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${editCorrectAnswer === index
+                                                    ? 'border-green-500 bg-green-50'
+                                                    : 'border-gray-200 hover:border-gray-300'
+                                                    }`}
+                                                >
+                                                  <input
+                                                    type="radio"
+                                                    name={`correct-answer-${editingQuestion?.moduleId}-${editingQuestion?.questionId}`}
+                                                    checked={editCorrectAnswer === index}
+                                                    onChange={() => setEditCorrectAnswer(index)}
+                                                    className="w-5 h-5 text-green-600 border-gray-300 focus:ring-green-500 focus:ring-2 cursor-pointer"
+                                                  />
+                                                  <span className="text-gray-700 font-medium text-sm flex-1">
+                                                    Option {index + 1}: {option || `(Empty option ${index + 1})`}
+                                                  </span>
+                                                  {editCorrectAnswer === index && (
+                                                    <span className="text-green-600 font-semibold text-sm">✓ Correct</span>
+                                                  )}
+                                                </label>
+                                              ))}
+                                              {editQuestionOptions.length === 0 && (
+                                                <p className="text-sm text-gray-500 italic">
+                                                  Please add at least one option before selecting the correct answer.
+                                                </p>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="flex gap-3 pt-2">
+                                            <button
+                                              type="button"
+                                              onClick={handleSaveQuestion}
+                                              disabled={actionLoading} // Disable when an action is in progress
+                                              className={`px-6 py-2.5 font-semibold rounded-lg border transition-all duration-200 shadow-sm flex items-center justify-center gap-2 ${actionLoading
+                                                ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                                                : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 hover:shadow-md"
+                                                }`}
+                                            >
+                                              {actionLoading ? (
+                                                <>
+                                                  <svg className="animate-spin h-4 w-4 text-gray-400" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                                  </svg>
+                                                  Saving...
+                                                </>
+                                              ) : (
+                                                "Save Question"
+                                              )}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={handleCancelEditQuestion}
+                                              className="px-6 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 border border-gray-200 transition-all duration-200"
+                                            >
+                                              Cancel
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="mt-4 mb-6">
+                                            <label className="block text-sm font-semibold text-gray-900 mb-2">
+                                              {q.question}
+                                            </label>
+                                            <p className="text-xs text-gray-500">
+                                              Please select one answer from the options below
+                                            </p>
+                                          </div>
+
+                                          {/* Radio Options */}
+                                          <div className="space-y-3">
+                                            {q.options.map((option, index) => (
+                                              <label
+                                                key={index}
+                                                className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-pink-400 hover:bg-pink-50 cursor-pointer transition-all duration-200"
+                                              >
+                                                <input
+                                                  type="radio"
+                                                  name={`question-${q.id}`}
+                                                  value={option}
+                                                  required
+                                                  defaultChecked={savedAnswers[module.id]?.[q.id] === option}
+                                                  className="w-5 h-5 text-pink-600 border-gray-300 focus:ring-pink-500 focus:ring-2 cursor-pointer"
+                                                />
+                                                <span className="text-gray-700 font-medium text-sm flex-1">{option}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </>
+                                      )}
+                                    </fieldset>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Form Actions */}
+                              <div className="mt-10 pt-6 border-t border-gray-200 flex flex-col sm:flex-row gap-4 justify-between items-center">
+                                <p className="text-sm text-gray-500">
+                                  <span className="text-red-500">*</span> Required fields
+                                  {savedAnswers[module.id] && Object.keys(savedAnswers[module.id]).length > 0 && (
+                                    <span className="ml-2 text-green-600 font-medium">• Answers saved - you can edit and resubmit</span>
+                                  )}
+                                </p>
+                                <div className="flex gap-4">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const form = document.querySelector('form');
+                                      if (form) {
+                                        form.reset();
+                                      }
+                                      // Clear saved answers for this module (local state only)
+                                      const updatedAnswers = { ...savedAnswers };
+                                      delete updatedAnswers[module.id];
+                                      setSavedAnswers(updatedAnswers);
+                                      // Note: Answers are stored in the database via API,
+                                      // clearing form only clears local state for UI purposes
+                                    }}
+                                    className="px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 border border-gray-200 transition-all duration-200"
+                                  >
+                                    Clear Form
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    disabled={actionLoading}
+                                    className={`px-8 py-3 font-semibold rounded-lg border transition-all duration-200 shadow-sm flex items-center justify-center gap-2 ${actionLoading
+                                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                                      : "bg-green-50 text-green-600 hover:bg-green-100 border-green-200 hover:shadow-md"
+                                      }`}
+                                  >
+                                    {actionLoading ? (
+                                      <>
+                                        <svg className="animate-spin h-5 w-5 text-gray-400" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                        </svg>
+                                        Submitting...
+                                      </>
+                                    ) : (
+                                      savedAnswers[module.id] && Object.keys(savedAnswers[module.id]).length > 0
+                                        ? 'Update & Resubmit'
+                                        : 'Submit Answers'
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </form>
                           )}
-                        </p>
-                        <div className="flex gap-4">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const form = document.querySelector('form');
-                              if (form) {
-                                form.reset();
-                              }
-                              // Clear saved answers for this module (local state only)
-                              const updatedAnswers = { ...savedAnswers };
-                              delete updatedAnswers[module.id];
-                              setSavedAnswers(updatedAnswers);
-                              // Note: Answers are stored in the database via API, 
-                              // clearing form only clears local state for UI purposes
-                            }}
-                            className="px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 border border-gray-200 transition-all duration-200"
-                          >
-                            Clear Form
-                          </button>
-                          <button
-                            type="submit"
-                            className="px-8 py-3 bg-green-50 text-green-600 font-semibold rounded-lg hover:bg-green-100 border border-green-200 transition-all duration-200 shadow-sm hover:shadow-md"
-                          >
-                            {savedAnswers[module.id] && Object.keys(savedAnswers[module.id]).length > 0 ? 'Update & Resubmit' : 'Submit Answers'}
-                          </button>
-                        </div>
-                      </div>
-                    </form>
-                  )}
-                </>
-              )}
-              </Fragment>
-            );
-          })}
-        </div>
+                        </>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </>

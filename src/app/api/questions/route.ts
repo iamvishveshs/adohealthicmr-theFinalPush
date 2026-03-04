@@ -18,7 +18,22 @@ export async function GET(request: NextRequest) {
     const moduleId = searchParams.get('moduleId');
     const moduleIdNum = moduleId ? parseInt(moduleId) : undefined;
     const questions = await getQuestions(isNaN(moduleIdNum as number) ? undefined : moduleIdNum);
-    return NextResponse.json({ success: true, questions });
+
+    // FIX: Parse the stringified options array into a real JavaScript array
+    const formattedQuestions = questions.map((q: any) => {
+      let parsedOptions = q.options;
+      if (typeof q.options === 'string') {
+        try {
+          parsedOptions = JSON.parse(q.options);
+        } catch (e) {
+          console.error("Failed to parse options for question:", q.id);
+          parsedOptions = [];
+        }
+      }
+      return { ...q, options: parsedOptions };
+    });
+
+    return NextResponse.json({ success: true, questions: formattedQuestions });
   } catch (error) {
     console.error('Error fetching questions:', error);
     return NextResponse.json(
