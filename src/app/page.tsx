@@ -3421,7 +3421,7 @@ export default function Home() {
                                         <span className="text-white font-bold text-xs uppercase">PR</span>
                                       </div>
                                       <div>
-                                        <h4 className="text-sm font-bold text-gray-900">Pre</h4>
+                                        <h4 className="text-sm font-bold text-gray-900">Pre Test</h4>
                                       </div>
                                     </div>
                                   </button>
@@ -3434,7 +3434,7 @@ export default function Home() {
                                         <span className="text-white font-bold text-xs uppercase">PO</span>
                                       </div>
                                       <div>
-                                        <h4 className="text-sm font-bold text-gray-900">Post</h4>
+                                        <h4 className="text-sm font-bold text-gray-900">Post Test</h4>
                                       </div>
                                     </div>
                                   </button>
@@ -3449,7 +3449,7 @@ export default function Home() {
                               >
                                 <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
                                   <h3 className="text-sm font-bold text-gray-900">
-                                    {moduleView[module.id] === "questions_pre" ? "Pre" : "Post"}
+                                    {moduleView[module.id] === "questions_pre" ? "Pre Test" : "Post Test"}
                                   </h3>
                                   <button
                                     type="button"

@@ -43,7 +43,7 @@ export default function HeroTitleSection() {
           {/* Title Text */}
           <div className="relative">
             <h1 className="text-sm sm:text-base md:text-lg lg:text-xl font-extrabold text-white leading-relaxed tracking-tight text-left max-w-3xl">
-              A School-Based Cluster Randomised Controlled Trial of an <span className="text-yellow-400">E-Wellness Initiative</span> for Nurturing Healthy Lifestyle Choices among Adolescents in SAS Nagar, Punjab.
+              A School-Based Cluster Randomised Controlled Trial of an <span className="text-yellow-400">e-wellness initiative</span> for Nurturing Healthy Lifestyle Choices among Adolescents in SAS Nagar, Punjab.
             </h1>
           </div>
 
