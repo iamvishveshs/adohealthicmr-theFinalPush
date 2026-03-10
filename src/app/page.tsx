@@ -736,7 +736,7 @@ export default function Home() {
     [key: number]: boolean;
   }>({});
   const [moduleView, setModuleView] = useState<{
-    [key: number]: "videos" | "questions" | null;
+    [key: number]: "videos" | "questions" | "questions_pre" | "questions_post" | null;
   }>({});
   const [selectedVideoType, setSelectedVideoType] = useState<{
     [key: number]: "english" | "punjabi" | "hindi" | "activity" | null;
@@ -3177,7 +3177,7 @@ export default function Home() {
                                 setModuleView((prev) => ({
                                   ...prev,
                                   [module.id]:
-                                    prev[module.id] === "questions"
+                                    prev[module.id]?.startsWith("questions")
                                       ? null
                                       : "questions",
                                 }))
@@ -3199,6 +3199,7 @@ export default function Home() {
                                         strokeWidth="2"
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
+                                        fill="none"
                                       />
                                       <path
                                         d="M15 13h8l-4 4m0 0l-4-4m4 4V5"
@@ -3206,6 +3207,7 @@ export default function Home() {
                                         strokeWidth="2"
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
+                                        fill="none"
                                       />
                                     </svg>
                                   </div>
@@ -3217,7 +3219,7 @@ export default function Home() {
                                 {/* Structural wrapper to FORCE the arrow to be visible */}
                                 <span className="flex items-center justify-center w-6 h-6 min-w-[24px] shrink-0 ml-2">
                                   <svg
-                                    className={`w-5 h-5 text-green-700 transition-transform duration-200 ${moduleView[module.id] === "questions" ? "rotate-180" : ""}`}
+                                    className={`w-5 h-5 text-green-700 transition-transform duration-200 ${moduleView[module.id]?.startsWith("questions") ? "rotate-180" : ""}`}
                                     fill="none"
                                     stroke="currentColor"
                                     viewBox="0 0 24 24"
@@ -3297,7 +3299,7 @@ export default function Home() {
                                           onClick={() =>
                                             setSelectedVideoType((prev) => ({
                                               ...prev,
-                                              [module.id]: type, // TypeScript now knows 'type' is one of the 4 allowed literals
+                                              [module.id]: type, 
                                             }))
                                           }
                                           className="p-4 bg-blue-50 border-2 border-blue-200 rounded-lg hover:border-blue-400 transition-all text-left"
@@ -3405,423 +3407,407 @@ export default function Home() {
                               );
                             })()}
 
-                          {/* Module Questions Form - Shown when Pre-Post Questions button is clicked */}
-                          {moduleView[module.id] === "questions" && (
-                            <form
-                              className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3"
-                              onSubmit={(e) =>
-                                handleSubmitAnswers(e, module.id)
-                              }
-                            >
-                              <div className="space-y-3">
-                                {(moduleQuestions[module.id] || []).map((q) => {
-                                  const isEditing =
-                                    editingQuestion?.moduleId === module.id &&
-                                    editingQuestion?.questionId === q.id;
-                                  const isJustSavedQuestion =
-                                    lastSavedItem?.type === "question" &&
-                                    lastSavedItem.moduleId === module.id &&
-                                    lastSavedItem.questionId === q.id;
+                          {/* Module Questions Section - WITH PRE/POST OPTIONS */}
+                          {moduleView[module.id]?.startsWith("questions") && (
+                            moduleView[module.id] === "questions" ? (
+                              <div className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                                  <button
+                                    onClick={() => setModuleView(prev => ({ ...prev, [module.id]: "questions_pre" }))}
+                                    className="p-4 bg-green-50 border-2 border-green-200 rounded-lg hover:border-green-400 transition-all text-left"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 bg-green-500 rounded flex items-center justify-center flex-shrink-0">
+                                        <span className="text-white font-bold text-xs uppercase">PR</span>
+                                      </div>
+                                      <div>
+                                        <h4 className="text-sm font-bold text-gray-900">Pre</h4>
+                                      </div>
+                                    </div>
+                                  </button>
+                                  <button
+                                    onClick={() => setModuleView(prev => ({ ...prev, [module.id]: "questions_post" }))}
+                                    className="p-4 bg-emerald-50 border-2 border-emerald-200 rounded-lg hover:border-emerald-400 transition-all text-left"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 bg-emerald-500 rounded flex items-center justify-center flex-shrink-0">
+                                        <span className="text-white font-bold text-xs uppercase">PO</span>
+                                      </div>
+                                      <div>
+                                        <h4 className="text-sm font-bold text-gray-900">Post</h4>
+                                      </div>
+                                    </div>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <form
+                                className="bg-white rounded-lg shadow-md border border-gray-200 p-3 mb-3"
+                                onSubmit={(e) =>
+                                  handleSubmitAnswers(e, module.id)
+                                }
+                              >
+                                <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+                                  <h3 className="text-sm font-bold text-gray-900">
+                                    {moduleView[module.id] === "questions_pre" ? "Pre-Questions" : "Post-Questions"}
+                                  </h3>
+                                  <button
+                                    type="button"
+                                    onClick={() => setModuleView(prev => ({ ...prev, [module.id]: "questions" }))}
+                                    className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2 font-medium transition-colors"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                    </svg>
+                                    Back to Options
+                                  </button>
+                                </div>
 
-                                  return (
-                                    <fieldset
-                                      key={q.id}
-                                      className={`border rounded-lg p-4 hover:border-pink-300 transition-colors relative ${
-                                        isJustSavedQuestion
-                                          ? "ring-2 ring-green-500 border-green-500 bg-green-50/50"
-                                          : "border-gray-200"
-                                      }`}
-                                    >
-                                      {isJustSavedQuestion && (
-                                        <span className="absolute top-4 right-4 text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded-full shadow-sm">
-                                          Saved
-                                        </span>
-                                      )}
-                                      {isAdmin && !isEditing && (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleEditQuestion(module.id, q)
-                                          }
-                                          className={`absolute top-4 p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 ${isJustSavedQuestion ? "right-20" : "right-4"}`}
-                                          title="Edit Question"
-                                        >
-                                          <svg
-                                            className="w-5 h-5"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
+                                <div className="space-y-3">
+                                  {(moduleQuestions[module.id] || []).map((q) => {
+                                    const isEditing =
+                                      editingQuestion?.moduleId === module.id &&
+                                      editingQuestion?.questionId === q.id;
+                                    const isJustSavedQuestion =
+                                      lastSavedItem?.type === "question" &&
+                                      lastSavedItem.moduleId === module.id &&
+                                      lastSavedItem.questionId === q.id;
+
+                                    return (
+                                      <fieldset
+                                        key={q.id}
+                                        className={`border rounded-lg p-4 hover:border-pink-300 transition-colors relative ${
+                                          isJustSavedQuestion
+                                            ? "ring-2 ring-green-500 border-green-500 bg-green-50/50"
+                                            : "border-gray-200"
+                                        }`}
+                                      >
+                                        {isJustSavedQuestion && (
+                                          <span className="absolute top-4 right-4 text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded-full shadow-sm">
+                                            Saved
+                                          </span>
+                                        )}
+                                        {isAdmin && !isEditing && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleEditQuestion(module.id, q)
+                                            }
+                                            className={`absolute top-4 p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 ${isJustSavedQuestion ? "right-20" : "right-4"}`}
+                                            title="Edit Question"
                                           >
-                                            <path
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                              strokeWidth={2}
-                                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                                            />
-                                          </svg>
-                                        </button>
-                                      )}
+                                            <svg
+                                              className="w-5 h-5"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                              />
+                                            </svg>
+                                          </button>
+                                        )}
 
-                                      <legend className="px-3 text-sm font-bold text-gray-900">
-                                        Question {q.id}{" "}
-                                        <span className="text-red-500">*</span>
-                                      </legend>
+                                        <legend className="px-3 text-sm font-bold text-gray-900">
+                                          Question {q.id}{" "}
+                                          <span className="text-red-500">*</span>
+                                        </legend>
 
-                                      {isEditing ? (
-                                        <div className="mt-4 space-y-4">
-                                          <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                              Question Text
-                                            </label>
-                                            <textarea
-                                              value={editQuestionText}
-                                              onChange={(e) =>
-                                                setEditQuestionText(
-                                                  e.target.value,
-                                                )
-                                              }
-                                              className="w-full px-4 py-2 border text-gray-700 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                              rows={3}
-                                            />
-                                          </div>
-                                          <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                              Answer Options
-                                            </label>
-                                            <div className="space-y-2">
-                                              {editQuestionOptions.map(
-                                                (option, index) => (
-                                                  <div
-                                                    key={index}
-                                                    className="flex gap-2"
-                                                  >
-                                                    <input
-                                                      type="text"
-                                                      value={option}
-                                                      onChange={(e) =>
-                                                        handleEditQuestionOption(
-                                                          index,
-                                                          e.target.value,
-                                                        )
-                                                      }
-                                                      className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                                      placeholder={`Option ${index + 1}`}
-                                                    />
-                                                    {editQuestionOptions.length >
-                                                      1 && (
-                                                      <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                          handleRemoveQuestionOption(
+                                        {isEditing ? (
+                                          <div className="mt-4 space-y-4">
+                                            <div>
+                                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Question Text
+                                              </label>
+                                              <textarea
+                                                value={editQuestionText}
+                                                onChange={(e) =>
+                                                  setEditQuestionText(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                className="w-full px-4 py-2 border text-gray-700 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                rows={3}
+                                              />
+                                            </div>
+                                            <div>
+                                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Answer Options
+                                              </label>
+                                              <div className="space-y-2">
+                                                {editQuestionOptions.map(
+                                                  (option, index) => (
+                                                    <div
+                                                      key={index}
+                                                      className="flex gap-2"
+                                                    >
+                                                      <input
+                                                        type="text"
+                                                        value={option}
+                                                        onChange={(e) =>
+                                                          handleEditQuestionOption(
+                                                            index,
+                                                            e.target.value,
+                                                          )
+                                                        }
+                                                        className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                        placeholder={`Option ${index + 1}`}
+                                                      />
+                                                      {editQuestionOptions.length >
+                                                        1 && (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            handleRemoveQuestionOption(
+                                                              index,
+                                                            )
+                                                          }
+                                                          className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 transition-all duration-200 text-sm font-medium"
+                                                        >
+                                                          Remove
+                                                        </button>
+                                                      )}
+                                                    </div>
+                                                  ),
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  onClick={
+                                                    handleAddQuestionOption
+                                                  }
+                                                  className="px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 border border-green-200 transition-all duration-200 text-sm font-medium"
+                                                >
+                                                  Add Option
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Correct Answer{" "}
+                                                <span className="text-red-500">
+                                                  *
+                                                </span>
+                                              </label>
+                                              <p className="text-xs text-gray-500 mb-3">
+                                                Select which option is the correct
+                                                answer for this question
+                                              </p>
+                                              <div className="space-y-2">
+                                                {editQuestionOptions.map(
+                                                  (option, index) => (
+                                                    <label
+                                                      key={index}
+                                                      className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                                                        editCorrectAnswer ===
+                                                        index
+                                                          ? "border-green-500 bg-green-50"
+                                                          : "border-gray-200 hover:border-gray-300"
+                                                      }`}
+                                                    >
+                                                      <input
+                                                        type="radio"
+                                                        name={`correct-answer-${editingQuestion?.moduleId}-${editingQuestion?.questionId}`}
+                                                        checked={
+                                                          editCorrectAnswer ===
+                                                          index
+                                                        }
+                                                        onChange={() =>
+                                                          setEditCorrectAnswer(
                                                             index,
                                                           )
                                                         }
-                                                        className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 transition-all duration-200 text-sm font-medium"
-                                                      >
-                                                        Remove
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                ),
-                                              )}
+                                                        className="w-5 h-5 text-green-600 border-gray-300 focus:ring-green-500 focus:ring-2 cursor-pointer"
+                                                      />
+                                                      <span className="text-gray-700 font-medium text-sm flex-1">
+                                                        Option {index + 1}:{" "}
+                                                        {option ||
+                                                          `(Empty option ${index + 1})`}
+                                                      </span>
+                                                      {editCorrectAnswer ===
+                                                        index && (
+                                                        <span className="text-green-600 font-semibold text-sm">
+                                                          ✓ Correct
+                                                        </span>
+                                                      )}
+                                                    </label>
+                                                  ),
+                                                )}
+                                                {editQuestionOptions.length ===
+                                                  0 && (
+                                                  <p className="text-sm text-gray-500 italic">
+                                                    Please add at least one option
+                                                    before selecting the correct
+                                                    answer.
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="flex gap-3 pt-2">
                                               <button
                                                 type="button"
-                                                onClick={
-                                                  handleAddQuestionOption
-                                                }
-                                                className="px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 border border-green-200 transition-all duration-200 text-sm font-medium"
+                                                onClick={handleSaveQuestion}
+                                                disabled={actionLoading}
+                                                className={`px-6 py-2.5 font-semibold rounded-lg border transition-all duration-200 shadow-sm flex items-center justify-center gap-2 ${
+                                                  actionLoading
+                                                    ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                                                    : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 hover:shadow-md"
+                                                }`}
                                               >
-                                                Add Option
+                                                {actionLoading ? (
+                                                  <>
+                                                    <svg
+                                                      className="animate-spin h-4 w-4 text-gray-400"
+                                                      viewBox="0 0 24 24"
+                                                    >
+                                                      <circle
+                                                        className="opacity-25"
+                                                        cx="12"
+                                                        cy="12"
+                                                        r="10"
+                                                        stroke="currentColor"
+                                                        strokeWidth="4"
+                                                        fill="none"
+                                                      />
+                                                      <path
+                                                        className="opacity-75"
+                                                        fill="currentColor"
+                                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                                      />
+                                                    </svg>
+                                                    Saving...
+                                                  </>
+                                                ) : (
+                                                  "Save Question"
+                                                )}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={handleCancelEditQuestion}
+                                                className="px-6 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 border border-gray-200 transition-all duration-200"
+                                              >
+                                                Cancel
                                               </button>
                                             </div>
                                           </div>
-                                          <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                              Correct Answer{" "}
-                                              <span className="text-red-500">
-                                                *
-                                              </span>
-                                            </label>
-                                            <p className="text-xs text-gray-500 mb-3">
-                                              Select which option is the correct
-                                              answer for this question
-                                            </p>
-                                            <div className="space-y-2">
-                                              {editQuestionOptions.map(
-                                                (option, index) => (
-                                                  <label
-                                                    key={index}
-                                                    className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
-                                                      editCorrectAnswer ===
-                                                      index
-                                                        ? "border-green-500 bg-green-50"
-                                                        : "border-gray-200 hover:border-gray-300"
-                                                    }`}
-                                                  >
-                                                    <input
-                                                      type="radio"
-                                                      name={`correct-answer-${editingQuestion?.moduleId}-${editingQuestion?.questionId}`}
-                                                      checked={
-                                                        editCorrectAnswer ===
-                                                        index
-                                                      }
-                                                      onChange={() =>
-                                                        setEditCorrectAnswer(
-                                                          index,
-                                                        )
-                                                      }
-                                                      className="w-5 h-5 text-green-600 border-gray-300 focus:ring-green-500 focus:ring-2 cursor-pointer"
-                                                    />
-                                                    <span className="text-gray-700 font-medium text-sm flex-1">
-                                                      Option {index + 1}:{" "}
-                                                      {option ||
-                                                        `(Empty option ${index + 1})`}
-                                                    </span>
-                                                    {editCorrectAnswer ===
-                                                      index && (
-                                                      <span className="text-green-600 font-semibold text-sm">
-                                                        ✓ Correct
-                                                      </span>
-                                                    )}
-                                                  </label>
-                                                ),
-                                              )}
-                                              {editQuestionOptions.length ===
-                                                0 && (
-                                                <p className="text-sm text-gray-500 italic">
-                                                  Please add at least one option
-                                                  before selecting the correct
-                                                  answer.
-                                                </p>
-                                              )}
-                                            </div>
-                                          </div>
-                                          <div className="flex gap-3 pt-2">
-                                            <button
-                                              type="button"
-                                              onClick={handleSaveQuestion}
-                                              disabled={actionLoading}
-                                              className={`px-6 py-2.5 font-semibold rounded-lg border transition-all duration-200 shadow-sm flex items-center justify-center gap-2 ${
-                                                actionLoading
-                                                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                                                  : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 hover:shadow-md"
-                                              }`}
-                                            >
-                                              {actionLoading ? (
-                                                <>
-                                                  <svg
-                                                    className="animate-spin h-4 w-4 text-gray-400"
-                                                    viewBox="0 0 24 24"
-                                                  >
-                                                    <circle
-                                                      className="opacity-25"
-                                                      cx="12"
-                                                      cy="12"
-                                                      r="10"
-                                                      stroke="currentColor"
-                                                      strokeWidth="4"
-                                                      fill="none"
-                                                    />
-                                                    <path
-                                                      className="opacity-75"
-                                                      fill="currentColor"
-                                                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                                    />
-                                                  </svg>
-                                                  Saving...
-                                                </>
-                                              ) : (
-                                                "Save Question"
-                                              )}
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={handleCancelEditQuestion}
-                                              className="px-6 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 border border-gray-200 transition-all duration-200"
-                                            >
-                                              Cancel
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <>
-                                          <div className="mt-4 mb-6">
-                                            <label className="block text-sm font-semibold text-gray-900 mb-2">
-                                              {q.question}
-                                            </label>
-                                            <p className="text-xs text-gray-500">
-                                              Please select one answer from the
-                                              options below
-                                            </p>
-                                          </div>
-
-                                          {/* Radio Options */}
-                                          <div className="space-y-3">
-                                            {q.options.map((option, index) => (
-                                              <label
-                                                key={index}
-                                                className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-pink-400 hover:bg-pink-50 cursor-pointer transition-all duration-200"
-                                              >
-                                                <input
-                                                  type="radio"
-                                                  name={`question-${q.id}`}
-                                                  value={option}
-                                                  required
-                                                  defaultChecked={
-                                                    savedAnswers[module.id]?.[
-                                                      q.id
-                                                    ] === option
-                                                  }
-                                                  className="w-5 h-5 text-pink-600 border-gray-300 focus:ring-pink-500 focus:ring-2 cursor-pointer"
-                                                />
-                                                <span className="text-gray-700 font-medium text-sm flex-1">
-                                                  {option}
-                                                </span>
+                                        ) : (
+                                          <>
+                                            <div className="mt-4 mb-6">
+                                              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                                                {q.question}
                                               </label>
-                                            ))}
-                                          </div>
-                                        </>
-                                      )}
-                                    </fieldset>
-                                  );
-                                })}
-                              </div>
+                                              <p className="text-xs text-gray-500">
+                                                Please select one answer from the
+                                                options below
+                                              </p>
+                                            </div>
 
-                              {/* Form Actions */}
-                              <div className="mt-8 pt-5 border-t-2 border-dashed border-gray-200 flex flex-col sm:flex-col gap-4 justify-between items-center">
-                                <div className="text-sm flex flex-col  items-center flex-wrap gap-2">
-                                  <span className="text-gray-500 font-medium flex-1">
-                                    <span className="text-red-500 font-bold text-base leading-none">
-                                      *
-                                    </span>{" "}
-                                    Required fields
-                                  </span>
-                                  {savedAnswers[module.id] &&
-                                    Object.keys(savedAnswers[module.id])
-                                      .length > 0 && (
+                                            {/* Radio Options */}
+                                            <div className="space-y-3">
+                                              {q.options.map((option, index) => (
+                                                <label
+                                                  key={index}
+                                                  className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-pink-400 hover:bg-pink-50 cursor-pointer transition-all duration-200"
+                                                >
+                                                  <input
+                                                    type="radio"
+                                                    name={`question-${q.id}`}
+                                                    value={option}
+                                                    required
+                                                    defaultChecked={
+                                                      savedAnswers[module.id]?.[
+                                                        q.id
+                                                      ] === option
+                                                    }
+                                                    className="w-5 h-5 text-pink-600 border-gray-300 focus:ring-pink-500 focus:ring-2 cursor-pointer"
+                                                  />
+                                                  <span className="text-gray-700 font-medium text-sm flex-1">
+                                                    {option}
+                                                  </span>
+                                                </label>
+                                              ))}
+                                            </div>
+                                          </>
+                                        )}
+                                      </fieldset>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Form Actions */}
+                                <div className="mt-8 pt-5 border-t-2 border-dashed border-gray-200 flex flex-col sm:flex-row gap-4 justify-between items-center">
+                                  <div className="text-sm flex items-center flex-wrap gap-2">
+                                    <span className="text-gray-500 font-medium">
+                                      <span className="text-red-500 font-bold text-base leading-none">*</span> Required fields
+                                    </span>
+                                    {savedAnswers[module.id] && Object.keys(savedAnswers[module.id]).length > 0 && (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-green-50 text-green-700 text-xs font-bold border border-green-200 shadow-sm">
-                                        <svg
-                                          className="w-3.5 h-3.5"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          viewBox="0 0 24 24"
-                                        >
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth="3"
-                                            d="M5 13l4 4L19 7"
-                                          />
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                                         </svg>
                                         Answers Saved
                                       </span>
                                     )}
-                                </div>
+                                  </div>
 
-                                <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const form =
-                                        document.querySelector("form");
-                                      if (form) form.reset();
-                                      const updatedAnswers = {
-                                        ...savedAnswers,
-                                      };
-                                      delete updatedAnswers[module.id];
-                                      setSavedAnswers(updatedAnswers);
-                                    }}
-                                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-white text-slate-600 font-bold text-sm rounded-lg border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all shadow-sm active:scale-95"
-                                  >
-                                    <svg
-                                      className="w-4 h-4"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
+                                  <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const form = document.querySelector("form");
+                                        if (form) form.reset();
+                                        const updatedAnswers = { ...savedAnswers };
+                                        delete updatedAnswers[module.id];
+                                        setSavedAnswers(updatedAnswers);
+                                      }}
+                                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-white text-slate-600 font-bold text-sm rounded-lg border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all shadow-sm active:scale-95"
                                     >
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="2"
-                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                      />
-                                    </svg>
-                                    Clear
-                                  </button>
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                      Clear
+                                    </button>
 
-                                  <button
-                                    type="submit"
-                                    disabled={actionLoading}
-                                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 font-bold text-sm rounded-lg border-2 transition-all shadow-sm active:scale-95 ${
-                                      actionLoading
-                                        ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none"
-                                        : "bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600 hover:shadow-md hover:-translate-y-0.5"
-                                    }`}
-                                  >
-                                    {actionLoading ? (
-                                      <>
-                                        <svg
-                                          className="animate-spin h-4 w-4 text-white"
-                                          viewBox="0 0 24 24"
-                                        >
-                                          <circle
-                                            className="opacity-25"
-                                            cx="12"
-                                            cy="12"
-                                            r="10"
-                                            stroke="currentColor"
-                                            strokeWidth="4"
-                                            fill="none"
-                                          />
-                                          <path
-                                            className="opacity-75"
-                                            fill="currentColor"
-                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                          />
-                                        </svg>
-                                        Saving...
-                                      </>
-                                    ) : savedAnswers[module.id] &&
-                                      Object.keys(savedAnswers[module.id])
-                                        .length > 0 ? (
-                                      <>
-                                        <svg
-                                          className="w-4 h-4"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          viewBox="0 0 24 24"
-                                        >
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth="2"
-                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                          />
-                                        </svg>
-                                        Update Answers
-                                      </>
-                                    ) : (
-                                      <>
-                                        <svg
-                                          className="w-4 h-4"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          viewBox="0 0 24 24"
-                                        >
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth="2"
-                                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                                          />
-                                        </svg>
-                                        Submit
-                                      </>
-                                    )}
-                                  </button>
+                                    <button
+                                      type="submit"
+                                      disabled={actionLoading}
+                                      className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 font-bold text-sm rounded-lg border-2 transition-all shadow-sm active:scale-95 ${
+                                        actionLoading
+                                          ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none"
+                                          : "bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600 hover:shadow-md hover:-translate-y-0.5"
+                                      }`}
+                                    >
+                                      {actionLoading ? (
+                                        <>
+                                          <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                          </svg>
+                                          Saving...
+                                        </>
+                                      ) : savedAnswers[module.id] && Object.keys(savedAnswers[module.id]).length > 0 ? (
+                                        <>
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                          Update Answers
+                                        </>
+                                      ) : (
+                                        <>
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                          </svg>
+                                          Submit
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            </form>
+                              </form>
+                            )
                           )}
                         </>
                       )}
