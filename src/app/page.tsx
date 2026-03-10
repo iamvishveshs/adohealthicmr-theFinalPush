@@ -3449,7 +3449,7 @@ export default function Home() {
                               >
                                 <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
                                   <h3 className="text-sm font-bold text-gray-900">
-                                    {moduleView[module.id] === "questions_pre" ? "Pre-Questions" : "Post-Questions"}
+                                    {moduleView[module.id] === "questions_pre" ? "Pre" : "Post"}
                                   </h3>
                                   <button
                                     type="button"
